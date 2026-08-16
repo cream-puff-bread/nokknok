@@ -63,9 +63,16 @@ LLM 호출이 실패해도 계산 결과 자체는 표시된다. 설명만 빠�
 
 ## 기술 스택
 
-**Backend** PostgreSQL · pgvector · LLM API
+**Backend** Python 3.11 · FastAPI · SQLAlchemy · Pydantic
+**Data/AI** PostgreSQL · pgvector · LLM API
 **Frontend** React · TypeScript · Tailwind CSS · Recharts
 **Infra** Vercel · Render · Neon · GitHub Actions
+
+FastAPI를 선택한 이유는 다음과 같다.
+
+- RAG 파이프라인(PDF 파싱, 청킹, 임베딩)과 가상 데이터 생성의 라이브러리 생태계가 Python에 집중되어 있다
+- Pydantic 모델이 `contracts/api-spec.yaml` 과 자동으로 대응되어, 별도 문서화 없이 OpenAPI 문서가 배포 환경에 노출된다
+- 시계열 예측 모듈에 필요한 통계 연산을 표준 라이브러리 수준에서 처리할 수 있다
 
 ## 구조
 
@@ -90,18 +97,42 @@ nokknok/
 
 ## 시작하기
 
+### 사전 준비
+
+Python 3.11 이상, Node.js 20 이상이 필요하다.
+
 ```bash
 git clone https://github.com/cream-puff-bread/nokknok.git
 cd nokknok
+cp .env.example .env      # DATABASE_URL은 반드시 풀링(Pooled) 주소 사용
+```
 
-cp .env.example .env      # DATABASE_URL은 반드시 풀링 주소 사용
+### 데이터베이스
 
+```bash
 psql $DATABASE_URL -f contracts/schema.sql
 psql $DATABASE_URL -f data/cards.seed.sql
 psql $DATABASE_URL -f data/personas.seed.sql
+```
 
-cd backend  && <install> && <run>
-cd frontend && npm install && npm run dev
+### 백엔드
+
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn src.main:app --reload --port 8000
+```
+
+API 문서는 `http://localhost:8000/docs` 에서 확인한다.
+
+### 프론트엔드
+
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
 ## 시연 데이터에 대하여

@@ -30,3 +30,8 @@ npm-debug.log*
 data/generated/
 data/clauses/*.pdf
 backend/.cache/
+
+# Python
+.venv/
+*.egg-info/
+.pytest_cache/

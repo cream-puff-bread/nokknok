@@ -4,6 +4,40 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 
 -- ─────────────────────────────────────────────
+-- 소비 카테고리 마스터
+--
+-- category / target_value 를 자유 텍스트로 두면 'DINNING' 같은 오탈자가
+-- 들어가도 DB가 받아주고, 엔진은 매칭 실패를 조용히 넘긴다.
+-- 할인이 0원으로 계산되어도 오류가 아니므로 발견이 매우 늦다.
+-- 마스터 테이블로 분리해 적재 시점에 걸러낸다.
+-- ─────────────────────────────────────────────
+CREATE TABLE spend_category (
+    code    VARCHAR(40) PRIMARY KEY,
+    label   VARCHAR(60) NOT NULL,
+    sort_no SMALLINT    NOT NULL DEFAULT 0
+);
+
+INSERT INTO spend_category (code, label, sort_no) VALUES
+('ALL',       '전체',        0),
+('DINING',    '외식',       10),
+('CAFE',      '카페',       20),
+('DELIVERY',  '배달',       30),
+('GROCERY',   '장보기',     40),
+('ONLINE',    '온라인쇼핑', 50),
+('TRANSPORT', '교통',       60),
+('FUEL',      '주유',       70),
+('MEDICAL',   '의료',       80),
+('EDUCATION', '교육',       90),
+('CULTURE',   '문화',      100),
+('TELECOM',   '통신',      110),
+('UTILITY',   '공과금',    120),
+('TAX',       '세금',      130),
+('INSURANCE', '보험',      140),
+('GIFT_CARD', '상품권',    150),
+('SUBSCRIPTION', '구독',   160),
+('ETC',       '기타',      999);
+
+-- ─────────────────────────────────────────────
 -- 카드 상품 마스터
 -- ─────────────────────────────────────────────
 CREATE TABLE card (
@@ -11,11 +45,13 @@ CREATE TABLE card (
     issuer              VARCHAR(50)  NOT NULL,        -- 카드사명
     name                VARCHAR(100) NOT NULL,        -- 카드명
     perf_period_type    VARCHAR(20)  NOT NULL,        -- MONTH_START | BILLING_CYCLE
-    billing_close_day   SMALLINT,                     -- 청구 마감일 (1~28, NULL이면 말일)
+    billing_close_day   SMALLINT,                     -- 청구 마감일. NULL이면 말일
     monthly_cap         INTEGER,                      -- 월 통합 할인 한도(원). NULL이면 무제한
     source_url          TEXT,                         -- 상품 안내장 출처
     is_demo             BOOLEAN NOT NULL DEFAULT false, -- 시연용 가상 상품 여부
-    created_at          TIMESTAMPTZ  NOT NULL DEFAULT now()
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT chk_billing_close_day CHECK (billing_close_day IS NULL OR billing_close_day BETWEEN 1 AND 28),
+    CONSTRAINT chk_perf_period       CHECK (perf_period_type IN ('MONTH_START', 'BILLING_CYCLE'))
 );
 
 COMMENT ON COLUMN card.is_demo IS '실제 카드 상품이 아닌 시연용 가상 상품임을 표시. 화면에도 명시해야 한다.';
@@ -30,7 +66,7 @@ CREATE TABLE card_benefit_rule (
     card_id             INTEGER NOT NULL REFERENCES card(id) ON DELETE CASCADE,
     perf_min            INTEGER NOT NULL,             -- 실적 하한(원), 포함
     perf_max            INTEGER,                      -- 실적 상한(원), 미포함. NULL이면 무제한
-    category            VARCHAR(40) NOT NULL,         -- ALL | DINING | TRANSPORT | ONLINE | ...
+    category            VARCHAR(40) NOT NULL REFERENCES spend_category(code),
     discount_rate       NUMERIC(5,4) NOT NULL,        -- 0.0500 = 5%
     category_cap        INTEGER,                      -- 해당 카테고리 월 한도(원)
     clause_id           INTEGER,                      -- 근거 조항
@@ -51,11 +87,20 @@ CREATE INDEX idx_rule_unverified ON card_benefit_rule (card_id) WHERE verified =
 CREATE TABLE card_exclusion (
     id                  SERIAL PRIMARY KEY,
     card_id             INTEGER NOT NULL REFERENCES card(id) ON DELETE CASCADE,
-    exclusion_type      VARCHAR(20) NOT NULL,         -- PERFORMANCE | DISCOUNT | BOTH
-    target_kind         VARCHAR(20) NOT NULL,         -- CATEGORY | MERCHANT | PAYMENT_TYPE
-    target_value        VARCHAR(60) NOT NULL,         -- TAX | UTILITY | GIFT_CARD | INTEREST_FREE ...
+    exclusion_type      VARCHAR(20) NOT NULL,
+    target_kind         VARCHAR(20) NOT NULL,
+    target_value        VARCHAR(60) NOT NULL,
     clause_id           INTEGER,
-    verified            BOOLEAN NOT NULL DEFAULT false
+    verified            BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT chk_exclusion_type CHECK (exclusion_type IN ('PERFORMANCE', 'DISCOUNT', 'BOTH')),
+    CONSTRAINT chk_target_kind    CHECK (target_kind IN ('CATEGORY', 'MERCHANT', 'PAYMENT_TYPE')),
+    -- target_value 는 target_kind 에 따라 참조 대상이 달라져 FK를 걸 수 없다.
+    -- PAYMENT_TYPE 만 값 집합이 고정이므로 여기서 검증하고,
+    -- CATEGORY 는 아래 무결성 검증 쿼리로 확인한다.
+    CONSTRAINT chk_payment_type_target CHECK (
+        target_kind <> 'PAYMENT_TYPE'
+        OR target_value IN ('LUMP', 'INSTALLMENT', 'INTEREST_FREE')
+    )
 );
 
 CREATE INDEX idx_exclusion_card ON card_exclusion (card_id, exclusion_type);
@@ -91,7 +136,8 @@ CREATE TABLE persona (
     description         TEXT,
     account_balance     INTEGER NOT NULL,             -- 현재 계좌 잔액(원)
     monthly_income      INTEGER NOT NULL,
-    income_day          SMALLINT NOT NULL             -- 급여일
+    income_day          SMALLINT NOT NULL,            -- 급여일
+    CONSTRAINT chk_income_day CHECK (income_day BETWEEN 1 AND 28)
 );
 
 CREATE TABLE persona_card (
@@ -112,10 +158,15 @@ CREATE TABLE transaction (
     txn_date            DATE NOT NULL,
     merchant            VARCHAR(120) NOT NULL,
     amount              INTEGER NOT NULL,             -- 원. 지출은 양수
-    category            VARCHAR(40) NOT NULL,
-    payment_type        VARCHAR(20) NOT NULL,         -- LUMP | INSTALLMENT | INTEREST_FREE
+    category            VARCHAR(40) NOT NULL REFERENCES spend_category(code),
+    payment_type        VARCHAR(20) NOT NULL,
     installment_months  SMALLINT NOT NULL DEFAULT 0,
-    is_recurring        BOOLEAN NOT NULL DEFAULT false
+    is_recurring        BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT chk_txn_payment_type CHECK (payment_type IN ('LUMP', 'INSTALLMENT', 'INTEREST_FREE')),
+    CONSTRAINT chk_installment      CHECK (
+        (payment_type = 'LUMP' AND installment_months = 0)
+        OR (payment_type <> 'LUMP' AND installment_months > 0)
+    )
 );
 
 CREATE INDEX idx_txn_persona_date ON transaction (persona_id, txn_date DESC);
@@ -134,7 +185,33 @@ CREATE TABLE fixed_expense (
     charge_day          SMALLINT NOT NULL,
     remaining_months    SMALLINT,                     -- NULL이면 무기한(구독 등)
     last_used_date      DATE,                         -- 미사용 구독 판별용
-    card_id             INTEGER REFERENCES card(id)
+    card_id             INTEGER REFERENCES card(id),
+    CONSTRAINT chk_charge_day   CHECK (charge_day BETWEEN 1 AND 28),
+    CONSTRAINT chk_expense_type CHECK (expense_type IN ('SUBSCRIPTION', 'INSTALLMENT', 'LOAN', 'INSURANCE'))
 );
 
 CREATE INDEX idx_fixed_persona ON fixed_expense (persona_id, expense_type);
+
+-- ─────────────────────────────────────────────
+-- 무결성 검증 쿼리
+--
+-- card_exclusion.target_value 는 target_kind 에 따라 참조 대상이 달라
+-- FK를 걸 수 없다. 규칙 적재 후 아래 쿼리로 확인한다.
+-- 결과가 한 건이라도 나오면 오탈자가 들어간 것이다.
+-- ─────────────────────────────────────────────
+-- SELECT e.id, e.card_id, e.target_value
+-- FROM card_exclusion e
+-- WHERE e.target_kind = 'CATEGORY'
+--   AND NOT EXISTS (SELECT 1 FROM spend_category c WHERE c.code = e.target_value);
+
+-- 대응하는 혜택 규칙이 없어 실질적으로 아무것도 걸러내지 못하는 제외 항목 탐지.
+-- 의도한 케이스일 수도 있으므로 오류가 아닌 점검용이다.
+-- SELECT e.id, e.card_id, e.target_value
+-- FROM card_exclusion e
+-- WHERE e.exclusion_type IN ('DISCOUNT', 'BOTH')
+--   AND e.target_kind = 'CATEGORY'
+--   AND NOT EXISTS (
+--     SELECT 1 FROM card_benefit_rule r
+--     WHERE r.card_id = e.card_id
+--       AND r.category IN (e.target_value, 'ALL')
+--   );

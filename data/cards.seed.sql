@@ -72,9 +72,14 @@ VALUES (3, '넉넉카드', 'NOKKNOK C (제외 복잡형)', 'MONTH_START', NULL, 
 INSERT INTO card_benefit_rule (card_id, perf_min, perf_max, category, discount_rate, category_cap, verified) VALUES
 (3, 300000, NULL, 'ONLINE',   0.1000, 20000, true),
 (3, 300000, NULL, 'DELIVERY', 0.1500, 10000, true),
-(3, 300000, NULL, 'CAFE',     0.1000, 10000, true);
+(3, 300000, NULL, 'CAFE',     0.1000, 10000, true),
+-- 기본 할인. 아래 DISCOUNT 제외와 맞물려 동작한다.
+-- TRANSPORT 결제는 이 규칙의 적용 대상이지만 할인에서만 제외되므로,
+-- 실적에는 잡히되 할인은 받지 못한다. 엔진이 실적 제외와 할인 제외를
+-- 구분해 처리하는지 검증하기 위한 케이스다.
+(3, 300000, NULL, 'ALL',      0.0100,  5000, true);
 
--- 실적에서 빠지는 항목 (할인은 별개)
+-- 실적에서 빠지는 항목 (할인 여부와는 별개)
 INSERT INTO card_exclusion (card_id, exclusion_type, target_kind, target_value, verified) VALUES
 (3, 'PERFORMANCE', 'CATEGORY',     'TAX',            true),
 (3, 'PERFORMANCE', 'CATEGORY',     'UTILITY',        true),
@@ -82,7 +87,8 @@ INSERT INTO card_exclusion (card_id, exclusion_type, target_kind, target_value, 
 (3, 'PERFORMANCE', 'CATEGORY',     'INSURANCE',      true),
 (3, 'PERFORMANCE', 'CATEGORY',     'EDUCATION',      true),
 (3, 'PERFORMANCE', 'PAYMENT_TYPE', 'INTEREST_FREE',  true),
--- 할인에서만 빠지는 항목
+-- 할인에서만 빠지는 항목. 실적에는 정상 반영된다.
+-- 위 ALL 규칙이 없으면 이 제외는 걸러낼 대상이 없어 죽은 데이터가 된다.
 (3, 'DISCOUNT',    'CATEGORY',     'TRANSPORT',      true);
 
 
