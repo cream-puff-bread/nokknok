@@ -90,7 +90,7 @@ export interface ClauseRef {
 }
 
 /**
- * B의 최적화 엔진이 반환하는 순수 계산 결과.
+ * 박서희의 최적화 엔진이 반환하는 순수 계산 결과.
  * LLM·RAG와 무관하며, 엔진 단위 테스트는 이 타입만으로 검증 가능하다.
  * 엔진은 explanation·clauses의 존재를 알지 못한다.
  */
