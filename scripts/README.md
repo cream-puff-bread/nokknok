@@ -2,8 +2,8 @@
 
 | 파일 | 담당 | 설명 |
 |---|---|---|
-| `generate_persona.py` | 손민주 | 페르소나별 6개월 거래 내역 생성 |
-| `ingest_clauses.py` | 손민주 | 약관 PDF 청킹·임베딩·적재 |
+| `generate_persona.py` | @mango606 | 페르소나별 6개월 거래 내역 생성 |
+| `ingest_clauses.py` | @mango606 | 약관 PDF 청킹·임베딩·적재 |
 
 ## 주의
 

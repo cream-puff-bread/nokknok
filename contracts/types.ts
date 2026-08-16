@@ -90,7 +90,7 @@ export interface ClauseRef {
 }
 
 /**
- * 박서희의 최적화 엔진이 반환하는 순수 계산 결과.
+ * 최적화 엔진(seohee-P)이 반환하는 순수 계산 결과.
  * LLM·RAG와 무관하며, 엔진 단위 테스트는 이 타입만으로 검증 가능하다.
  * 엔진은 explanation·clauses의 존재를 알지 못한다.
  */
@@ -107,7 +107,7 @@ export interface RouteCandidate {
   perfRequired: number;
   /**
    * 이 결과를 산출할 때 적용한 card_benefit_rule.id.
-   * C가 근거 조항을 조회할 때 사용한다.
+   * fanfanduck이 근거 조항을 조회할 때 사용한다.
    * card_benefit_rule.clause_id → clause_source 조인으로 정확히 특정되므로
    * 이 경로에서는 벡터 검색을 사용하지 않는다.
    */
@@ -115,7 +115,7 @@ export interface RouteCandidate {
 }
 
 /**
- * API 응답 타입. C가 RouteCandidate에 근거 조항과 LLM 설명을 덧붙여 조립한다.
+ * API 응답 타입. fanfanduck이 RouteCandidate에 근거 조항과 LLM 설명을 덧붙여 조립한다.
  * 조립 순서는 CONTRIBUTING.md 참조.
  */
 export interface RouteOption extends RouteCandidate {
