@@ -66,7 +66,7 @@ LLM 호출이 실패해도 계산 결과 자체는 표시된다. 설명만 빠�
 ## 기술 스택
 
 **Backend** Python 3.11 · FastAPI · SQLAlchemy · Pydantic
-**Data/AI** PostgreSQL · pg_trgm · LLM API
+**Data/AI** PostgreSQL · pg_trgm · Gemini API
 **Frontend** React · TypeScript · Tailwind CSS · Recharts
 **Infra** Vercel · Render · Neon · GitHub Actions
 
@@ -180,5 +180,4 @@ npm run dev
 
 | 항목 | 영향 |
 |---|---|
-| LLM 제공자 확정 | `requirements.txt` 의 SDK가 주석 처리된 상태 |
 | 배치 파이프라인 1단계 / 2단계 | 1단계로 정해지면 `pg_trgm` 확장과 트라이그램 인덱스를 스키마에서 제거 |

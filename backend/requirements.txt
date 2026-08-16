@@ -21,18 +21,12 @@ pypdf==5.1.0
 # ─── 데이터 생성 ───
 Faker==33.1.0
 
-# ─── LLM SDK ───
-# ⚠️ Day 1에 제공자를 확정한 뒤 아래 중 하나를 활성화할 것.
-#
-#    임베딩은 사용하지 않기로 했으므로(docs/decisions/001) 규칙 변환과
-#    결과 설명에 쓸 모델 하나만 정하면 된다.
-#    선택 시 고려할 점은 docs/decisions/002 참조.
-#
-# anthropic==0.42.0
-# openai==1.59.0
-#
-# SDK 없이 httpx로 직접 REST 호출하는 것도 가능하다.
-# 그 경우 위 두 줄을 활성화하지 않고 이 주석만 남긴다.
+# ─── LLM ───
+# Gemini 확정. 근거는 docs/decisions/002 참조.
+# 응답 스키마 지정으로 JSON 출력을 강제할 수 있다는 점이 결정적이었다.
+# ParsedQuery.category와 paymentType은 값 집합이 고정이므로
+# 모델이 임의 문자열을 낼 여지를 스키마 단계에서 없앤다.
+google-genai==1.2.0
 
 # ─── Dev ───
 pytest==8.3.4

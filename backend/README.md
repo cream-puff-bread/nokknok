@@ -57,6 +57,35 @@ create_engine(settings.database_url, pool_size=settings.db_pool_max, max_overflo
 런타임은 총 예산 기준이므로 `tenacity` 의 `stop_after_delay` 를 사용한다.
 `stop_after_attempt` 만 쓰면 응답 시간이 보장되지 않는다.
 
+### 구조화된 출력은 응답 스키마로 강제한다
+
+LLM에게 "JSON으로 답해줘"라고 프롬프트에 적는 것만으로는 부족하다.
+Gemini의 응답 스키마 지정 기능을 써서 출력 형식을 강제한다.
+
+값 집합이 고정된 필드는 반드시 enum으로 지정한다.
+
+| 필드 | 값 집합 |
+|---|---|
+| `category` | `spend_category` 테이블의 `code` 전체 |
+| `paymentType` | `LUMP` / `INSTALLMENT` / `INTEREST_FREE` |
+
+**enum 값을 코드에 하드코딩하지 않는다.** `spend_category` 를 조회해 스키마를
+동적으로 만든다. 코드에 목록을 다시 적으면 카테고리를 추가할 때 두 곳을 고쳐야 하고,
+한쪽을 빠뜨리면 모델이 DB에 없는 값을 반환한다.
+
+응답 스키마를 지정해도 형식 위반이 아예 불가능해지는 것은 아니므로, 파싱 후
+`spend_category` 존재 여부를 한 번 더 확인하고 실패 시 422로 응답한다.
+
+### 무료 티어 요청 한도 대응
+
+Gemini 무료 티어는 분당·일일 요청 한도가 있다. 배치에서 약관을 연속 처리하면
+한도에 걸리기 쉽다.
+
+- 재시도만으로 부족하다. **배치는 요청 간 간격을 두어 분당 한도 아래로 유지**한다
+- 429 응답의 `Retry-After` 헤더가 있으면 그 값을 우선한다
+- 변환 완료된 약관은 파일로 캐싱해 재실행 시 건너뛴다
+- 한도와 모델 구성은 자주 바뀌므로 공식 문서에서 현재 값을 확인한다
+
 ### 엔진은 LLM을 모른다
 
 `src/engine/` 은 `src/rag/` 나 LLM 클라이언트를 import 하지 않는다.
