@@ -47,7 +47,7 @@ LLM 호출이 실패해도 계산 결과 자체는 표시된다. 설명만 빠�
 
 검색 결과를 LLM이 그대로 읽고 답하게 하면 금액이나 기준일 같은 수치에서 오류가 발생한다. 실적 판정은 검수를 마친 규칙 테이블만 참조하고, 근거 조항은 적용된 규칙의 `clause_id` 조인으로 정확히 특정한다.
 
-이 구조 덕분에 벡터 검색이 필요 없어졌다. 남은 용도는 배치가 조항과 규칙을 매칭하는 단계 하나뿐인데, 그마저 사람 검수 게이트가 있어 완벽한 의미 검색을 요구하지 않는다. 자세한 판단 근거는 [docs/decisions/001](./docs/decisions/001-no-vector-search.md) 참조.
+이 구조 덕분에 벡터 검색이 필요 없어졌고, 배치를 1단계 구조로 짜면서 조항 검색 자체가 사라졌다. 조항을 적재하며 그 자리에서 규칙을 추출하므로 `clause_source.id` 를 추출 시점에 이미 알고 있다. 판단 근거는 [decisions/001](./docs/decisions/001-no-vector-search.md), [decisions/002](./docs/decisions/002-llm-provider-and-pipeline.md) 참조.
 
 ### 통계적 시계열 예측
 
@@ -66,7 +66,7 @@ LLM 호출이 실패해도 계산 결과 자체는 표시된다. 설명만 빠�
 ## 기술 스택
 
 **Backend** Python 3.11 · FastAPI · SQLAlchemy · Pydantic
-**Data/AI** PostgreSQL · pg_trgm · Gemini API
+**Data/AI** PostgreSQL · Gemini API
 **Frontend** React · TypeScript · Tailwind CSS · Recharts
 **Infra** Vercel · Render · Neon · GitHub Actions
 
@@ -176,8 +176,7 @@ npm run dev
 
 ## 미결 사항
 
-코드 작성 전에 결정해야 하는 항목이다. 진행 상황은 [docs/decisions](./docs/decisions/)에서 추적한다.
+기술 의사결정은 모두 확정되었다. 기록은 [docs/decisions](./docs/decisions/)에 있다.
 
-| 항목 | 영향 |
-|---|---|
-| 배치 파이프라인 1단계 / 2단계 | 1단계로 정해지면 `pg_trgm` 확장과 트라이그램 인덱스를 스키마에서 제거 |
+남은 것은 시연 대상 카드 3종 선정이다. 카드가 정해져야 약관 수집과 규칙 변환이
+시작되고, 기획서의 혜택 금액 수치도 실제 계산으로 채울 수 있다.

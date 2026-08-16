@@ -18,7 +18,7 @@ API 문서: http://localhost:8000/docs
 | 경로 | 담당 | 내용 |
 |---|---|---|
 | `src/adapter/` | mango606 | 마이데이터 규격 데이터 소스 추상화 |
-| `src/rag/` | mango606 | 약관 파싱·조항 분할·규칙 변환 |
+| `src/rag/` | mango606 | 약관 파싱·조항 적재·규칙 변환 (1단계 파이프라인) |
 | `src/engine/` | seohee-P | 결제 조합 최적화, 실적 판정 |
 | `src/repository/` | seohee-P | DB 접근 |
 | `src/api/` | fanfanduck | 엔드포인트, 응답 조립 |

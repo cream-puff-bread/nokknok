@@ -78,10 +78,11 @@ Postgres 기본 `tsvector` 전문 검색은 한국어에서 어미 변화(제외
 - 스키마에서 `vector` 확장, `embedding` 컬럼, `ivfflat` 인덱스 제거
 - `requirements.txt` 에서 `pgvector` 제거
 
-## 남은 확인 사항
+## 후속 결정
 
-두 가지가 미결로 남았으며 `docs/decisions/002` 에서 추적한다.
+`docs/decisions/002` 에서 두 가지가 확정되었다.
 
-- 규칙 변환·설명 생성에 쓸 LLM 제공자 확정
-- 배치 파이프라인 1단계 / 2단계 구조 확정. 1단계로 정해지면 `pg_trgm` 확장과
-  `idx_clause_content_trgm` 인덱스를 스키마에서 함께 제거한다
+- LLM 제공자: Gemini
+- 배치 파이프라인: 1단계 구조. 이에 따라 조항 검색 자체가 불필요해져
+  `pg_trgm` 확장과 트라이그램 인덱스도 제거했다. `clause_source` 는
+  검색 대상이 아닌 순수 원문 보관 테이블이 되었다.

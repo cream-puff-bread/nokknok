@@ -1,10 +1,10 @@
 -- 넉넉(nokknok) 데이터베이스 스키마
 -- 변경 시 전원 합의 필수. 변경 후 이 파일과 마이그레이션을 함께 커밋한다.
 
--- pg_trgm: 조항 검색이 필요한 경우에만 사용하는 트라이그램 유사도 확장.
--- 벡터 확장(pgvector)은 사용하지 않는다. 근거는 docs/decisions/001 참조.
--- 파이프라인 구조가 1단계로 확정되면 이 확장도 제거한다. docs/decisions/002 참조.
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- 확장을 사용하지 않는다.
+-- 벡터 검색(pgvector)은 도입하지 않았고(docs/decisions/001),
+-- 배치 파이프라인이 1단계 구조로 확정되어 조항 검색 자체가 불필요해졌다(docs/decisions/002).
+-- 근거 조항은 항상 clause_id 조인으로 특정한다.
 
 -- ─────────────────────────────────────────────
 -- 소비 카테고리 마스터
@@ -149,28 +149,10 @@ CREATE TABLE clause_source (
 
 CREATE INDEX idx_clause_card ON clause_source (card_id);
 
--- ⚠️ 결정 대기 — docs/decisions/002
---
--- 배치 파이프라인이 조항 추출과 규칙 변환을 분리해 2단계로 동작하는 경우에만
--- 아래 트라이그램 인덱스가 필요하다. 한국어는 어미 변화 때문에 tsvector 기반
--- 전문 검색이 형태소 분석기 없이는 잘 맞지 않는 반면, pg_trgm은 문자 단위
--- n-gram이라 언어와 무관하게 부분 문자열 유사도를 잡아낸다.
---
--- 파이프라인이 1단계(조항을 읽으면서 그 자리에서 규칙을 추출하고
--- clause_source.id를 함께 저장)로 확정되면 이 인덱스와 상단의
--- pg_trgm 확장을 함께 제거한다.
---
--- 현재는 결정 전이므로 생성해 둔다. 수백 row 규모에서 GIN 인덱스 하나의
--- 비용은 무시할 수준이고, 나중에 필요해졌을 때 마이그레이션이 생기는 편이
--- 더 번거롭다. 결정 후 정리를 잊지 말 것.
-CREATE INDEX idx_clause_content_trgm ON clause_source USING gin (content gin_trgm_ops);
-
--- 조회 예시
--- SELECT id, doc_name, page_no, similarity(content, :query) AS score
--- FROM clause_source
--- WHERE card_id = :card_id
--- ORDER BY score DESC
--- LIMIT 5;
+-- 검색용 인덱스를 두지 않는다.
+-- 배치가 조항을 적재하면서 그 자리에서 규칙을 추출하므로(1단계 구조),
+-- 추출 시점에 clause_source.id를 이미 알고 있다. 나중에 조항을 찾을 일이 없다.
+-- docs/decisions/002 참조.
 
 ALTER TABLE card_benefit_rule
     ADD CONSTRAINT fk_rule_clause FOREIGN KEY (clause_id) REFERENCES clause_source(id);
