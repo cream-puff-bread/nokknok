@@ -89,7 +89,12 @@ export interface ClauseRef {
   pageNo: number;
 }
 
-export interface RouteOption {
+/**
+ * B의 최적화 엔진이 반환하는 순수 계산 결과.
+ * LLM·RAG와 무관하며, 엔진 단위 테스트는 이 타입만으로 검증 가능하다.
+ * 엔진은 explanation·clauses의 존재를 알지 못한다.
+ */
+export interface RouteCandidate {
   cardId: number;
   cardName: string;
   /** 'YYYY-MM-DD' */
@@ -101,11 +106,26 @@ export interface RouteOption {
   perfCurrent: number;
   perfRequired: number;
   /**
-   * LLM 생성 설명. 생성 실패 시 null.
+   * 이 결과를 산출할 때 적용한 card_benefit_rule.id.
+   * C가 근거 조항을 조회할 때 사용한다.
+   * card_benefit_rule.clause_id → clause_source 조인으로 정확히 특정되므로
+   * 이 경로에서는 벡터 검색을 사용하지 않는다.
+   */
+  ruleId: number;
+}
+
+/**
+ * API 응답 타입. C가 RouteCandidate에 근거 조항과 LLM 설명을 덧붙여 조립한다.
+ * 조립 순서는 CONTRIBUTING.md 참조.
+ */
+export interface RouteOption extends RouteCandidate {
+  /**
+   * LLM 생성 설명. 생성 실패 또는 타임아웃 시 null.
    * null이어도 나머지 계산 결과는 반드시 화면에 표시한다.
    * 설명이 없다고 결과 전체를 숨기지 않는다.
    */
   explanation: string | null;
+  /** ruleId 조인으로 조회한 근거 조항. 조회 실패 시 빈 배열. */
   clauses: ClauseRef[];
 }
 
@@ -122,8 +142,14 @@ export interface ComputeMeta {
 }
 
 export interface RouteResponse {
+  /** 설명 생성은 best에만 적용한다. */
   best: RouteOption;
-  alternatives: RouteOption[];
+  /**
+   * 대안은 계산 결과만 제시한다.
+   * RouteCandidate 타입이므로 explanation 필드 자체가 존재하지 않는다.
+   * (RouteOption[]으로 두면 항상 null인 필드가 생겨 혼란을 유발한다.)
+   */
+  alternatives: RouteCandidate[];
   /**
    * 보유 카드로 조건 충족 불가 시에만 존재.
    * 최적화 결과와 시각적으로 분리해 표시하고 제휴 여부를 함께 밝힌다.
