@@ -1,0 +1,20 @@
+name: keep-alive
+
+# Render 무료 인스턴스는 15분 무응답 시 슬립되고
+# 재기동에 30~60초가 걸린다. 심사 기간 중 URL 접근 불가는 결격 사유이므로
+# 10분마다 헬스체크를 호출해 인스턴스를 깨워둔다.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: |
+          curl -sf --max-time 90 "${{ secrets.API_HEALTH_URL }}" \
+            && echo "alive" \
+            || echo "ping failed (non-blocking)"

@@ -1,0 +1,32 @@
+# dependencies
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# build
+dist/
+build/
+.next/
+out/
+
+# env
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# logs
+*.log
+npm-debug.log*
+
+# 생성물
+data/generated/
+data/clauses/*.pdf
+backend/.cache/

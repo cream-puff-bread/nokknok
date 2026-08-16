@@ -1,0 +1,248 @@
+openapi: 3.0.3
+info:
+  title: 넉넉(nokknok) API
+  version: 0.1.0
+  description: |
+    가용잔고 산출, 현금흐름 시뮬레이션, 결제 라우팅 최적화 API.
+
+    설계 원칙
+    - 모든 금액은 원 단위 정수이며, 금액 계산은 서버가 전담한다.
+    - LLM은 질의 해석과 결과 설명에만 관여하며 금액을 계산하지 않는다.
+    - LLM 생성 실패 시에도 계산 결과는 반드시 응답에 포함된다.
+
+servers:
+  - url: https://nokknok-api.onrender.com
+    description: 배포 환경
+  - url: http://localhost:8000
+    description: 로컬
+
+paths:
+  /api/health:
+    get:
+      summary: 헬스체크 (keep-alive용)
+      responses:
+        '200':
+          description: 정상
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  time:   { type: string, format: date-time }
+
+  /api/personas:
+    get:
+      summary: 시연용 페르소나 목록
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Persona' }
+
+  /api/balance:
+    get:
+      summary: 가용잔고 조회
+      parameters:
+        - name: personaId
+          in: query
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BalanceResponse' }
+        '404':
+          description: 페르소나 없음
+
+  /api/simulate:
+    post:
+      summary: 6개월 현금흐름 시뮬레이션
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [personaId, query]
+              properties:
+                personaId: { type: integer }
+                query:
+                  type: string
+                  example: 아이폰 180만원 할부로 사도 될까
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SimulationResponse' }
+        '422':
+          description: 질의에서 금액을 추출하지 못함
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /api/route:
+    post:
+      summary: 결제 라우팅 최적화
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [personaId, amount]
+              properties:
+                personaId: { type: integer }
+                amount:    { type: integer, example: 1800000 }
+                category:  { type: string,  example: ONLINE }
+                dueDate:
+                  type: string
+                  format: date
+                  description: 구매 기한. 생략 시 오늘부터 30일
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RouteResponse' }
+
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        code:    { type: string, example: QUERY_PARSE_FAILED }
+        message: { type: string, description: 사용자에게 보여줄 안내 문구 }
+
+    Persona:
+      type: object
+      properties:
+        id:             { type: integer }
+        code:           { type: string, example: SUBSCRIPTION_HEAVY }
+        displayName:    { type: string, example: 구독이 많은 김넉넉 }
+        description:    { type: string }
+        accountBalance: { type: integer }
+        cardCount:      { type: integer }
+
+    FixedExpense:
+      type: object
+      properties:
+        label:         { type: string }
+        amount:        { type: integer }
+        chargeDay:     { type: integer }
+        expenseType:   { type: string, enum: [SUBSCRIPTION, INSTALLMENT, LOAN, INSURANCE] }
+        unusedSuspect: { type: boolean, description: 미사용 의심 구독 }
+
+    BalanceResponse:
+      type: object
+      properties:
+        accountBalance:   { type: integer, description: 통장 표시 잔액 }
+        fixedTotal:       { type: integer, description: 확정 지출 합계 }
+        availableBalance: { type: integer, description: 가용잔고 }
+        fixedExpenses:
+          type: array
+          items: { $ref: '#/components/schemas/FixedExpense' }
+
+    ParsedQuery:
+      type: object
+      properties:
+        amount:            { type: integer }
+        paymentType:       { type: string, enum: [LUMP, INSTALLMENT, INTEREST_FREE] }
+        installmentMonths: { type: integer }
+        category:          { type: string }
+
+    ScenarioPoint:
+      type: object
+      properties:
+        month:   { type: string, example: 2026-09 }
+        balance: { type: integer }
+
+    Scenario:
+      type: object
+      properties:
+        level: { type: string, enum: [COMFORTABLE, NORMAL, TIGHT] }
+        points:
+          type: array
+          items: { $ref: '#/components/schemas/ScenarioPoint' }
+
+    SimulationResponse:
+      type: object
+      properties:
+        parsed: { $ref: '#/components/schemas/ParsedQuery' }
+        scenarios:
+          type: array
+          description: 여유 / 보통 / 빠듯 3종
+          items: { $ref: '#/components/schemas/Scenario' }
+        deadPoint:
+          type: object
+          nullable: true
+          description: 잔고가 음수로 전환되는 시점. 없으면 null
+          properties:
+            month:    { type: string }
+            level:    { type: string }
+            shortage: { type: integer }
+        forecastMeta:
+          type: object
+          description: 예측 신뢰도 판단 근거를 이용자에게 노출하기 위한 정보
+          properties:
+            monthsUsed: { type: integer }
+            txnCount:   { type: integer }
+            coldStart:  { type: boolean }
+
+    ClauseRef:
+      type: object
+      properties:
+        content: { type: string }
+        docName: { type: string }
+        pageNo:  { type: integer }
+
+    RouteOption:
+      type: object
+      properties:
+        cardId:            { type: integer }
+        cardName:          { type: string }
+        payDate:           { type: string, format: date }
+        paymentType:       { type: string, enum: [LUMP, INSTALLMENT, INTEREST_FREE] }
+        installmentMonths: { type: integer }
+        expectedDiscount:  { type: integer }
+        perfAchieved:      { type: boolean }
+        perfCurrent:       { type: integer }
+        perfRequired:      { type: integer }
+        explanation:
+          type: string
+          nullable: true
+          description: LLM 생성 설명. 생성 실패 시 null이며 나머지 값은 정상 표시할 것
+        clauses:
+          type: array
+          items: { $ref: '#/components/schemas/ClauseRef' }
+
+    RouteResponse:
+      type: object
+      properties:
+        best: { $ref: '#/components/schemas/RouteOption' }
+        alternatives:
+          type: array
+          items: { $ref: '#/components/schemas/RouteOption' }
+        newCardSuggestion:
+          type: object
+          nullable: true
+          description: |
+            보유 카드로 조건 충족 불가 시에만 존재.
+            최적화 결과와 시각적으로 분리해 표시하고 제휴 여부를 함께 밝힌다.
+          properties:
+            cardName:     { type: string }
+            expectedGain: { type: integer }
+            isAffiliate:  { type: boolean }
+        computeMeta:
+          type: object
+          description: 가지치기 효과를 화면에 보여주기 위한 정보
+          properties:
+            candidatesTotal:  { type: integer }
+            candidatesPruned: { type: integer }
+            elapsedMs:        { type: integer }
