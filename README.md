@@ -173,3 +173,12 @@ npm run dev
 - AI로 코드 생성 시 `contracts/` 파일을 반드시 컨텍스트로 제공
 - 외부 API 호출에는 예외 처리·타임아웃·지수 백오프 필수
 - 커밋 메시지는 Conventional Commits 형식
+
+## 미결 사항
+
+코드 작성 전에 결정해야 하는 항목이다. 진행 상황은 [docs/decisions](./docs/decisions/)에서 추적한다.
+
+| 항목 | 영향 |
+|---|---|
+| LLM 제공자 확정 | `requirements.txt` 의 SDK가 주석 처리된 상태 |
+| 배치 파이프라인 1단계 / 2단계 | 1단계로 정해지면 `pg_trgm` 확장과 트라이그램 인덱스를 스키마에서 제거 |

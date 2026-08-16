@@ -26,6 +26,7 @@ Faker==33.1.0
 #
 #    임베딩은 사용하지 않기로 했으므로(docs/decisions/001) 규칙 변환과
 #    결과 설명에 쓸 모델 하나만 정하면 된다.
+#    선택 시 고려할 점은 docs/decisions/002 참조.
 #
 # anthropic==0.42.0
 # openai==1.59.0
