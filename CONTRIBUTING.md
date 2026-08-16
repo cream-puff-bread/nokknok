@@ -67,6 +67,10 @@ JOIN clause_source cs ON cs.id = r.clause_id
 WHERE r.id = $1;
 ```
 
+근거 조항 조회가 결과를 반환하려면 `card_benefit_rule.clause_id` 가 채워져 있어야 한다.
+규칙을 적재할 때 반드시 근거 조항을 함께 넣는다. 시드 데이터는 `data/clauses.seed.sql`
+에서 이를 처리한다.
+
 **런타임 경로에서는 어떤 형태의 검색도 사용하지 않는다.** 판정 근거를 추측으로 찾으면 실제 적용된 규칙과 어긋날 수 있다. 조항 검색은 @mango606의 배치 파이프라인이 2단계로 동작하는 경우에만 필요하며, 그때도 벡터가 아닌 `pg_trgm` 유사도를 쓴다. 근거는 `docs/decisions/001` 참조.
 
 ### 설명은 best에만, 타임아웃 예산 안에서

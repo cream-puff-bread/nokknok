@@ -93,7 +93,7 @@ nokknok/
 │   ├── repository/     DB 접근
 │   └── api/            엔드포인트
 ├── frontend/src/
-├── data/               시드 데이터
+├── data/               시드 데이터 (카드·약관·페르소나)
 └── scripts/            데이터 생성·적재 배치
 ```
 
@@ -114,6 +114,7 @@ cp .env.example .env      # DATABASE_URL은 반드시 풀링(Pooled) 주소 사�
 ```bash
 psql $DATABASE_URL -f contracts/schema.sql
 psql $DATABASE_URL -f data/cards.seed.sql
+psql $DATABASE_URL -f data/clauses.seed.sql
 psql $DATABASE_URL -f data/personas.seed.sql
 ```
 
@@ -149,6 +150,10 @@ npm run dev
 | NOKKNOK B | 단일 조건형 (청구 마감일 기준) | 결제일 변경 시 집계 기간 변동 |
 | NOKKNOK C | 제외 항목 복잡형 | 실적 제외와 할인 제외의 구분 |
 
+`data/clauses.seed.sql` 의 약관 조항 역시 실제 카드사 약관이 아니라, 위 가상 카드에
+대응하도록 작성한 문안이다. 국내 카드 약관의 서술 방식만 참고했다. 이 파일이 없으면
+`clause_id` 가 전부 `NULL` 로 남아 판정 근거 표시 기능이 동작하지 않는다.
+
 페르소나 역시 모두 가상 인물이며 실제 개인의 금융 데이터가 아니다.
 
 ## 팀
@@ -176,7 +181,9 @@ npm run dev
 
 ## 미결 사항
 
-기술 의사결정은 모두 확정되었다. 기록은 [docs/decisions](./docs/decisions/)에 있다.
+없다. 기술 의사결정과 시연 데이터가 모두 확정되었으며, 기록은
+[docs/decisions](./docs/decisions/)에 있다.
 
-남은 것은 시연 대상 카드 3종 선정이다. 카드가 정해져야 약관 수집과 규칙 변환이
-시작되고, 기획서의 혜택 금액 수치도 실제 계산으로 채울 수 있다.
+가상 카드 3종과 대응 약관이 시드로 들어가 있으므로 엔진·API·프론트 개발을 전부
+진행할 수 있다. 실제 카드사 상품으로 교체하는 것은 선택 사항이며, 교체하더라도
+`data/cards.seed.sql` 과 `data/clauses.seed.sql` 만 수정하면 된다.
