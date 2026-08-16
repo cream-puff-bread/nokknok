@@ -58,8 +58,24 @@ COMMENT ON COLUMN card.is_demo IS '실제 카드 상품이 아닌 시연용 가�
 
 -- ─────────────────────────────────────────────
 -- 실적 구간별 혜택 규칙
+--
 -- 계단형 구조를 컬럼이 아닌 행으로 표현한다.
 -- 컬럼으로 고정하면 구간 수가 다른 카드를 담을 수 없다.
+--
+-- ⚠️ 규칙 적용 우선순위 (엔진 구현 시 반드시 준수)
+--
+--   같은 실적 구간에 카테고리 전용 규칙과 ALL 와일드카드 규칙이
+--   동시에 존재할 수 있다. 이때 적용 규칙은 하나만 선택한다.
+--
+--     1) 결제 카테고리와 정확히 일치하는 규칙이 있으면 그것을 적용
+--     2) 없으면 ALL 규칙을 폴백으로 적용
+--     3) 둘 다 없으면 할인 없음
+--
+--   두 규칙을 합산하지 않는다. 예를 들어 카드 C는 ONLINE 10%와 ALL 1%를
+--   함께 갖지만, ONLINE 결제의 할인율은 11%가 아니라 10%다.
+--   합산하면 실제로 존재하지 않는 할인을 화면에 표시하게 된다.
+--
+--   category_cap 역시 선택된 규칙의 값만 적용한다.
 -- ─────────────────────────────────────────────
 CREATE TABLE card_benefit_rule (
     id                  SERIAL PRIMARY KEY,
@@ -73,7 +89,10 @@ CREATE TABLE card_benefit_rule (
     verified            BOOLEAN NOT NULL DEFAULT false, -- 사람 검수 완료 여부
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_perf_range CHECK (perf_max IS NULL OR perf_max > perf_min),
-    CONSTRAINT chk_rate       CHECK (discount_rate >= 0 AND discount_rate <= 1)
+    CONSTRAINT chk_rate       CHECK (discount_rate >= 0 AND discount_rate <= 1),
+    -- 같은 카드·구간·카테고리에 규칙이 둘 이상 있으면 어느 것을 적용할지
+    -- 결정할 수 없다. 적재 시점에 차단한다.
+    CONSTRAINT uq_rule_scope  UNIQUE (card_id, perf_min, perf_max, category)
 );
 
 CREATE INDEX idx_rule_card_perf  ON card_benefit_rule (card_id, perf_min, perf_max);

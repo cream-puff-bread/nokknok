@@ -62,3 +62,49 @@ create_engine(settings.database_url, pool_size=settings.db_pool_max, max_overflo
 `src/engine/` 은 `src/rag/` 나 LLM 클라이언트를 import 하지 않는다.
 엔진 반환 타입은 `RouteCandidate` 이며 `explanation` 과 `clauses` 를 갖지 않는다.
 조립은 `src/api/` 가 담당한다.
+
+### 규칙 적용 우선순위
+
+같은 실적 구간에 카테고리 전용 규칙과 `ALL` 와일드카드 규칙이 함께 존재할 수 있다.
+**적용 규칙은 항상 하나만 선택하며 합산하지 않는다.**
+
+| 순위 | 조건 | 적용 |
+|---|---|---|
+| 1 | 결제 카테고리와 정확히 일치하는 규칙 존재 | 그 규칙 |
+| 2 | 일치 규칙 없고 `ALL` 규칙 존재 | `ALL` 규칙 |
+| 3 | 둘 다 없음 | 할인 없음 |
+
+`category_cap` 도 선택된 규칙의 값만 쓴다. 두 규칙의 한도를 더하지 않는다.
+
+조회 예시:
+
+```sql
+SELECT id, discount_rate, category_cap
+FROM card_benefit_rule
+WHERE card_id = :card_id
+  AND perf_min <= :perf
+  AND (perf_max IS NULL OR :perf < perf_max)
+  AND category IN (:category, 'ALL')
+ORDER BY CASE WHEN category = :category THEN 0 ELSE 1 END
+LIMIT 1;
+```
+
+`ORDER BY` 로 전용 규칙을 먼저 오게 하고 `LIMIT 1` 로 하나만 취한다.
+`WHERE category IN (...)` 만 쓰고 두 행을 모두 받아 더하면 존재하지 않는
+할인율이 계산된다.
+
+### 엔진 필수 단위 테스트
+
+구현 전에 아래 케이스를 먼저 작성한다. 계산 오류는 화면에 그럴듯한 숫자로
+표시되어 발견이 늦다.
+
+| 케이스 | 기대값 |
+|---|---|
+| 카드 C, ONLINE 결제, 실적 충족 | 10% (ALL 1%를 더한 11%가 아님) |
+| 카드 C, TRANSPORT 결제, 실적 충족 | ALL 규칙 매치되나 DISCOUNT 제외로 할인 0원, 실적에는 반영 |
+| 카드 C, TAX 결제 | 실적에 미반영 (PERFORMANCE 제외) |
+| 카드 A, 실적 499,999원 / 500,000원 | 구간 경계에서 한도가 바뀌는지 |
+| 카드 A, 무이자 할부 결제 | 실적·할인 모두 제외 (BOTH) |
+| 카드 B, 결제일 변경 | 청구 마감일 기준이므로 실적 집계 기간이 달라지는지 |
+| 카테고리 한도 초과 | `category_cap` 에서 잘리는지 |
+| 월 통합 한도 초과 | `monthly_cap` 에서 잘리는지 |

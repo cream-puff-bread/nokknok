@@ -93,3 +93,23 @@ INSERT INTO card_exclusion (card_id, exclusion_type, target_kind, target_value, 
 
 
 SELECT setval('card_id_seq', 3, true);
+
+
+-- ═══════════════════════════════════════════════════════════
+-- 적재 후 확인 쿼리
+--
+-- 카테고리 전용 규칙과 ALL 와일드카드가 공존하는 구간을 나열한다.
+-- 엔진이 두 규칙을 합산하면 여기 나온 카테고리에서 계산 오류가 발생한다.
+-- 카드 C의 ONLINE 결제는 11%가 아니라 10%여야 한다.
+-- ═══════════════════════════════════════════════════════════
+-- SELECT r.card_id, r.perf_min, r.category, r.discount_rate AS correct_rate,
+--        a.discount_rate AS all_rate,
+--        r.discount_rate + a.discount_rate AS wrong_if_summed
+-- FROM card_benefit_rule r
+-- JOIN card_benefit_rule a
+--   ON a.card_id = r.card_id
+--  AND a.perf_min = r.perf_min
+--  AND a.perf_max IS NOT DISTINCT FROM r.perf_max
+--  AND a.category = 'ALL'
+-- WHERE r.category <> 'ALL'
+-- ORDER BY r.card_id, r.perf_min, r.category;
