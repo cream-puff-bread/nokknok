@@ -43,9 +43,11 @@
 
 LLM 호출이 실패해도 계산 결과 자체는 표시된다. 설명만 빠지고 숫자는 나오는 것이 정상 동작이다.
 
-### RAG는 런타임 응답 경로에 두지 않는다
+### 검색을 런타임 응답 경로에 두지 않는다
 
-검색 결과를 LLM이 그대로 읽고 답하게 하면 금액이나 기준일 같은 수치에서 오류가 발생한다. RAG는 **규칙 생성(배치)** 과 **근거 조항 제시** 에만 관여하고, 실적 판정은 검수를 마친 규칙 테이블만 참조한다.
+검색 결과를 LLM이 그대로 읽고 답하게 하면 금액이나 기준일 같은 수치에서 오류가 발생한다. 실적 판정은 검수를 마친 규칙 테이블만 참조하고, 근거 조항은 적용된 규칙의 `clause_id` 조인으로 정확히 특정한다.
+
+이 구조 덕분에 벡터 검색이 필요 없어졌다. 남은 용도는 배치가 조항과 규칙을 매칭하는 단계 하나뿐인데, 그마저 사람 검수 게이트가 있어 완벽한 의미 검색을 요구하지 않는다. 자세한 판단 근거는 [docs/decisions/001](./docs/decisions/001-no-vector-search.md) 참조.
 
 ### 통계적 시계열 예측
 
@@ -64,13 +66,13 @@ LLM 호출이 실패해도 계산 결과 자체는 표시된다. 설명만 빠�
 ## 기술 스택
 
 **Backend** Python 3.11 · FastAPI · SQLAlchemy · Pydantic
-**Data/AI** PostgreSQL · pgvector · LLM API
+**Data/AI** PostgreSQL · pg_trgm · LLM API
 **Frontend** React · TypeScript · Tailwind CSS · Recharts
 **Infra** Vercel · Render · Neon · GitHub Actions
 
 FastAPI를 선택한 이유는 다음과 같다.
 
-- RAG 파이프라인(PDF 파싱, 청킹, 임베딩)과 가상 데이터 생성의 라이브러리 생태계가 Python에 집중되어 있다
+- 약관 파싱과 가상 데이터 생성의 라이브러리 생태계가 Python에 집중되어 있다
 - Pydantic 모델이 `contracts/api-spec.yaml` 과 자동으로 대응되어, 별도 문서화 없이 OpenAPI 문서가 배포 환경에 노출된다
 - 시계열 예측 모듈에 필요한 통계 연산을 표준 라이브러리 수준에서 처리할 수 있다
 
@@ -153,7 +155,7 @@ npm run dev
 
 | 담당 | 영역 | GitHub |
 |---|---|---|
-| 손민주 | 데이터 생성 · 마이데이터 어댑터 · RAG 파이프라인 | [@mango606](https://github.com/mango606) |
+| 손민주 | 데이터 생성 · 마이데이터 어댑터 · 약관 파이프라인 | [@mango606](https://github.com/mango606) |
 | 박서희 | 최적화 엔진 · 데이터베이스 설계 | [@seohee-P](https://github.com/seohee-P) |
 | 조하영 | API 서버 · 인프라 · 시계열 예측 | [@fanfanduck](https://github.com/fanfanduck) |
 

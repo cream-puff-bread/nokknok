@@ -8,7 +8,6 @@ pydantic-settings==2.7.1
 # psycopg[binary]: psycopg2 후속. Neon/Supabase 풀러와 호환
 psycopg[binary]==3.2.3
 SQLAlchemy==2.0.36
-pgvector==0.3.6
 
 # ─── HTTP / 재시도 ───
 # 런타임 재시도는 tenacity의 stop_after_delay 사용.
@@ -24,14 +23,9 @@ Faker==33.1.0
 
 # ─── LLM SDK ───
 # ⚠️ Day 1에 제공자를 확정한 뒤 아래 중 하나를 활성화할 것.
-#    docs/decisions/001-llm-embedding-provider.md 참조.
 #
-#    규칙 변환·설명 생성과 임베딩은 별개로 정해야 한다.
-#    Anthropic API에는 임베딩 엔드포인트가 없으므로,
-#    Claude를 쓰더라도 임베딩은 다른 제공자가 필요하다.
-#
-#    임베딩 모델을 바꾸면 schema.sql의 vector(1536)도 함께 수정해야 한다.
-#    (text-embedding-3-small = 1536 기준)
+#    임베딩은 사용하지 않기로 했으므로(docs/decisions/001) 규칙 변환과
+#    결과 설명에 쓸 모델 하나만 정하면 된다.
 #
 # anthropic==0.42.0
 # openai==1.59.0

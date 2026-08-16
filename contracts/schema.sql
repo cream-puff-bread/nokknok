@@ -1,7 +1,9 @@
 -- 넉넉(nokknok) 데이터베이스 스키마
 -- 변경 시 전원 합의 필수. 변경 후 이 파일과 마이그레이션을 함께 커밋한다.
 
-CREATE EXTENSION IF NOT EXISTS vector;
+-- pg_trgm: 조항 검색이 필요한 경우에만 사용하는 트라이그램 유사도 확장.
+-- 벡터 확장(pgvector)은 사용하지 않는다. 근거는 docs/decisions/001 참조.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ─────────────────────────────────────────────
 -- 소비 카테고리 마스터
@@ -125,7 +127,15 @@ CREATE TABLE card_exclusion (
 CREATE INDEX idx_exclusion_card ON card_exclusion (card_id, exclusion_type);
 
 -- ─────────────────────────────────────────────
--- 근거 약관 조항 (RAG)
+-- 근거 약관 조항
+--
+-- 판정 근거를 화면에 제시하기 위한 원문 보관 테이블이다.
+-- 런타임에서는 card_benefit_rule.clause_id 조인으로 정확히 특정하므로
+-- 어떤 형태의 검색도 필요하지 않다.
+--
+-- 임베딩 컬럼을 두지 않는 이유는 docs/decisions/001 참조.
+-- 요약하면, 검색이 필요한 경우가 배치의 조항-규칙 매칭 하나뿐인데
+-- 그 단계에는 verified 검수 게이트가 있어 완벽한 의미 검색이 필요하지 않다.
 -- ─────────────────────────────────────────────
 CREATE TABLE clause_source (
     id                  SERIAL PRIMARY KEY,
@@ -133,12 +143,27 @@ CREATE TABLE clause_source (
     doc_name            VARCHAR(200) NOT NULL,
     page_no             SMALLINT,
     content             TEXT NOT NULL,                -- 조항 원문
-    embedding           vector(1536),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_clause_embedding ON clause_source
-    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 50);
+CREATE INDEX idx_clause_card ON clause_source (card_id);
+
+-- 배치 파이프라인이 조항 추출과 규칙 변환을 분리해 2단계로 동작하는 경우에만
+-- 아래 트라이그램 인덱스를 사용한다. 한국어는 어미 변화 때문에 tsvector 기반
+-- 전문 검색이 형태소 분석기 없이는 잘 맞지 않는 반면, pg_trgm은 문자 단위
+-- n-gram이라 언어와 무관하게 부분 문자열 유사도를 잡아낸다.
+--
+-- 파이프라인이 1단계(조항을 읽으면서 그 자리에서 규칙을 추출하고
+-- clause_source.id를 함께 저장)로 동작하면 검색 자체가 불필요하므로
+-- 이 확장과 인덱스를 제거해도 된다.
+CREATE INDEX idx_clause_content_trgm ON clause_source USING gin (content gin_trgm_ops);
+
+-- 조회 예시
+-- SELECT id, doc_name, page_no, similarity(content, :query) AS score
+-- FROM clause_source
+-- WHERE card_id = :card_id
+-- ORDER BY score DESC
+-- LIMIT 5;
 
 ALTER TABLE card_benefit_rule
     ADD CONSTRAINT fk_rule_clause FOREIGN KEY (clause_id) REFERENCES clause_source(id);
