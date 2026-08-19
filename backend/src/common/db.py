@@ -24,13 +24,30 @@ _engine: Engine | None = None
 _SessionFactory: sessionmaker[Session] | None = None
 
 
+def _normalize_url(url: str) -> str:
+    """DATABASE_URL의 드라이버를 psycopg3로 고정한다.
+
+    requirements.txt가 psycopg3를 쓰므로 드라이버를 명시해야 한다.
+    postgresql:// 만 쓰면 SQLAlchemy가 psycopg2를 찾아 실패한다.
+    """
+    if url.startswith("postgresql+"):
+        # 이미 드라이버가 명시된 경우(postgresql+psycopg:// 등)는 그대로 둔다.
+        # 다시 접두사를 붙이면 postgresql+psycopg+psycopg:// 처럼 이중 변환된다.
+        return url
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://") :]
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://") :]
+    return url
+
+
 def get_engine() -> Engine:
     """프로세스당 하나의 엔진을 공유한다."""
     global _engine
     if _engine is None:
         settings = get_settings()
         _engine = create_engine(
-            settings.require_database_url(),
+            _normalize_url(settings.require_database_url()),
             pool_size=settings.db_pool_max,
             max_overflow=0,  # 상한을 실제로 강제하기 위해 반드시 0
             pool_timeout=settings.db_pool_timeout_s,
