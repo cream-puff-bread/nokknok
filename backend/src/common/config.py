@@ -39,7 +39,7 @@ class Settings(BaseSettings):
         return self.database_url
 
     # ─── LLM 공통 ───
-    llm_provider: Literal["anthropic", "openai"] = Field(
+    llm_provider: Literal["anthropic", "openai", "gemini"] = Field(
         default="anthropic", alias="LLM_PROVIDER"
     )
     llm_api_key: str = Field(default="", alias="LLM_API_KEY")
