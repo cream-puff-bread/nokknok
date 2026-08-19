@@ -1,0 +1,304 @@
+"""LLM 클라이언트.
+
+두 가지를 분리해서 다룬다.
+
+1. **제공자 추상화** — 제공자가 아직 확정되지 않았다(docs/decisions/002).
+   요청·응답 형식만 어댑터로 감싸두면 LLM_PROVIDER 환경변수 하나로 교체된다.
+
+2. **배치와 런타임 프로파일** — 재시도 정책이 다르다.
+
+   | 경로   | 기준            | 실패 시                       |
+   |--------|-----------------|-------------------------------|
+   | 배치   | 최대 시도 횟수  | 예외를 던져 호출부가 기록·재개 |
+   | 런타임 | 총 소요 시간    | LlmBudgetExceededError        |
+
+   런타임에서 stop_after_attempt 만 쓰면 응답 시간이 보장되지 않는다.
+   시도 2회여도 각 호출이 10초씩 걸리면 20초가 된다. stop_after_delay 로
+   총 예산을 걸어야 API 응답 시간을 통제할 수 있다.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+import httpx
+from tenacity import (
+    RetryError,
+    Retrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    stop_after_delay,
+    wait_exponential,
+)
+
+from src.common.config import Settings, get_settings
+from src.common.exceptions import (
+    LlmBudgetExceededError,
+    LlmPermanentError,
+    LlmTransientError,
+)
+from src.common.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+# ─────────────────────────────────────────────
+# 제공자 어댑터
+# ─────────────────────────────────────────────
+class LlmProvider(Protocol):
+    """제공자별 요청·응답 형식 차이를 흡수한다."""
+
+    def build_request(
+        self, system: str, user: str, max_tokens: int
+    ) -> tuple[str, dict[str, str], dict[str, Any]]:
+        """(url, headers, json_body) 를 반환한다."""
+        ...
+
+    def extract_text(self, payload: dict[str, Any]) -> str:
+        """응답 본문에서 생성된 텍스트만 뽑아낸다."""
+        ...
+
+
+class AnthropicProvider:
+    """Anthropic Messages API."""
+
+    BASE_URL = "https://api.anthropic.com/v1/messages"
+
+    def __init__(self, api_key: str, model: str) -> None:
+        self._api_key = api_key
+        self._model = model
+
+    def build_request(
+        self, system: str, user: str, max_tokens: int
+    ) -> tuple[str, dict[str, str], dict[str, Any]]:
+        headers = {
+            "x-api-key": self._api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        body: dict[str, Any] = {
+            "model": self._model,
+            "max_tokens": max_tokens,
+            "system": system,
+            "messages": [{"role": "user", "content": user}],
+        }
+        return self.BASE_URL, headers, body
+
+    def extract_text(self, payload: dict[str, Any]) -> str:
+        # content 는 블록 배열이다. 위치를 가정하지 말고 type 으로 걸러낸다.
+        blocks = payload.get("content", [])
+        return "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
+
+
+class OpenAiProvider:
+    """OpenAI Chat Completions API."""
+
+    BASE_URL = "https://api.openai.com/v1/chat/completions"
+
+    def __init__(self, api_key: str, model: str) -> None:
+        self._api_key = api_key
+        self._model = model
+
+    def build_request(
+        self, system: str, user: str, max_tokens: int
+    ) -> tuple[str, dict[str, str], dict[str, Any]]:
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        body: dict[str, Any] = {
+            "model": self._model,
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        }
+        return self.BASE_URL, headers, body
+
+    def extract_text(self, payload: dict[str, Any]) -> str:
+        choices = payload.get("choices", [])
+        if not choices:
+            return ""
+        return choices[0].get("message", {}).get("content", "") or ""
+
+
+def build_provider(settings: Settings) -> LlmProvider:
+    if settings.llm_provider == "anthropic":
+        return AnthropicProvider(settings.llm_api_key, settings.llm_model)
+    return OpenAiProvider(settings.llm_api_key, settings.llm_model)
+
+
+# ─────────────────────────────────────────────
+# 호출 프로파일
+# ─────────────────────────────────────────────
+@dataclass(frozen=True)
+class RetryProfile:
+    """재시도 정책.
+
+    budget_ms 가 설정되면 총 소요 시간 기준으로 중단한다(런타임).
+    None 이면 시도 횟수 기준으로 중단한다(배치).
+    """
+
+    name: str
+    timeout_ms: int
+    max_retry: int
+    budget_ms: int | None = None
+
+
+def batch_profile(settings: Settings | None = None) -> RetryProfile:
+    s = settings or get_settings()
+    return RetryProfile(
+        name="batch",
+        timeout_ms=s.llm_batch_timeout_ms,
+        max_retry=s.llm_batch_max_retry,
+        budget_ms=None,
+    )
+
+
+def runtime_profile(settings: Settings | None = None) -> RetryProfile:
+    s = settings or get_settings()
+    return RetryProfile(
+        name="runtime",
+        # 개별 호출 타임아웃이 총 예산보다 크면 예산이 의미를 잃는다.
+        timeout_ms=min(s.llm_runtime_timeout_budget_ms, 3_000),
+        max_retry=s.llm_runtime_max_retry,
+        budget_ms=s.llm_runtime_timeout_budget_ms,
+    )
+
+
+# ─────────────────────────────────────────────
+# 클라이언트
+# ─────────────────────────────────────────────
+class LlmClient:
+    """제공자와 재시도 정책을 조합한 호출자."""
+
+    def __init__(
+        self,
+        profile: RetryProfile,
+        provider: LlmProvider | None = None,
+        settings: Settings | None = None,
+    ) -> None:
+        self._settings = settings or get_settings()
+        self._provider = provider or build_provider(self._settings)
+        self._profile = profile
+
+    # ---------- public ----------
+    def complete(self, system: str, user: str, max_tokens: int = 2048) -> str:
+        """텍스트를 생성한다. 실패 시 예외를 던진다."""
+        retrying = Retrying(
+            stop=(
+                stop_after_delay(self._profile.budget_ms / 1000)
+                if self._profile.budget_ms is not None
+                else stop_after_attempt(self._profile.max_retry)
+            ),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=8),
+            retry=retry_if_exception_type(LlmTransientError),
+            reraise=False,
+        )
+        try:
+            for attempt in retrying:
+                with attempt:
+                    return self._call_once(system, user, max_tokens)
+        except RetryError as exc:
+            if self._profile.budget_ms is not None:
+                raise LlmBudgetExceededError(
+                    f"런타임 예산 {self._profile.budget_ms}ms 초과"
+                ) from exc
+            raise LlmTransientError(
+                f"재시도 {self._profile.max_retry}회 모두 실패"
+            ) from exc
+        raise LlmTransientError("호출이 수행되지 않았습니다")  # 도달하지 않음
+
+    def complete_json(
+        self, system: str, user: str, max_tokens: int = 2048
+    ) -> dict[str, Any]:
+        """JSON 응답을 파싱해 반환한다.
+
+        모델이 코드 펜스를 붙이는 경우가 흔해 제거 후 파싱한다.
+        """
+        raw = self.complete(system, user, max_tokens)
+        return parse_json_response(raw)
+
+    # ---------- internal ----------
+    def _call_once(self, system: str, user: str, max_tokens: int) -> str:
+        url, headers, body = self._provider.build_request(system, user, max_tokens)
+        timeout = self._profile.timeout_ms / 1000
+
+        try:
+            response = httpx.post(url, headers=headers, json=body, timeout=timeout)
+        except httpx.TimeoutException as exc:
+            raise LlmTransientError(f"LLM 호출 타임아웃 ({timeout}s)") from exc
+        except httpx.HTTPError as exc:
+            raise LlmTransientError(f"LLM 호출 네트워크 오류: {exc}") from exc
+
+        self._raise_for_status(response)
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise LlmTransientError("LLM 응답이 JSON이 아닙니다") from exc
+
+        return self._provider.extract_text(payload)
+
+    @staticmethod
+    def _raise_for_status(response: httpx.Response) -> None:
+        """상태 코드를 일시적 실패와 영구 실패로 나눈다.
+
+        재시도해도 소용없는 실패(401, 400)를 재시도하면 시간과 비용만 든다.
+        """
+        if response.status_code < 400:
+            return
+
+        if response.status_code == 429 or response.status_code >= 500:
+            retry_after = response.headers.get("retry-after")
+            wait_s: float | None = None
+            if retry_after:
+                try:
+                    wait_s = float(retry_after)
+                except ValueError:
+                    wait_s = None
+            logger.warning(
+                "LLM 일시적 실패 status=%s retry_after=%s",
+                response.status_code,
+                retry_after,
+            )
+            raise LlmTransientError(
+                f"LLM 일시적 실패: {response.status_code}", retry_after_s=wait_s
+            )
+
+        # 본문에 키가 실릴 수 있으므로 상태 코드만 남긴다.
+        raise LlmPermanentError(f"LLM 요청 실패: {response.status_code}")
+
+
+def parse_json_response(raw: str) -> dict[str, Any]:
+    """모델 응답에서 JSON 객체를 뽑아낸다.
+
+    프롬프트로 JSON만 반환하라고 지시해도 코드 펜스나 설명이 붙는 경우가 있다.
+    """
+    text = raw.strip()
+
+    if text.startswith("```"):
+        # ```json ... ``` 형태에서 내용만 남긴다.
+        lines = text.splitlines()
+        lines = lines[1:] if lines else lines
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # 앞뒤에 설명이 붙은 경우 첫 중괄호부터 마지막 중괄호까지 잘라 재시도한다.
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            return json.loads(text[start : end + 1])
+        except json.JSONDecodeError as exc:
+            raise LlmPermanentError("LLM 응답을 JSON으로 파싱할 수 없습니다") from exc
+
+    raise LlmPermanentError("LLM 응답에 JSON 객체가 없습니다")
