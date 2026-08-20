@@ -15,6 +15,7 @@ LLM의 유일한 역할은 자연어 약관을 판정 가능한 조건식으로 
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -101,8 +102,18 @@ class RuleExtractor:
     호출부는 이 결과를 그대로 적재하면 clause_id 연결이 끝난다.
     """
 
-    def __init__(self, client: LlmClient) -> None:
+    def __init__(
+        self, client: LlmClient, categories: Sequence[str] | None = None
+    ) -> None:
         self._client = client
+        # 프롬프트 문구와 Gemini responseSchema의 enum이 서로 다른 목록을
+        # 참조하면 모델이 "쓰라고 한 값"과 "허용된 값"이 어긋난 채로 호출을
+        # 받는다. 스키마를 만들 때 쓴 것과 같은 목록을 여기서도 써야 한다.
+        # 지정하지 않으면(스텁 client를 쓰는 단위 테스트 등) 기존처럼
+        # VALID_CATEGORIES로 동작한다.
+        self._categories = (
+            tuple(categories) if categories is not None else tuple(sorted(VALID_CATEGORIES))
+        )
 
     def extract(
         self, clause: Clause, issuer: str, card_name: str
@@ -113,9 +124,7 @@ class RuleExtractor:
         응답 형식 오류는 빈 결과로 처리한다. 한 조항 때문에 배치 전체가
         멈추면 안 되기 때문이다.
         """
-        system = SYSTEM_PROMPT.format(
-            categories=", ".join(sorted(VALID_CATEGORIES))
-        )
+        system = SYSTEM_PROMPT.format(categories=", ".join(self._categories))
         user = USER_TEMPLATE.format(
             issuer=issuer, card_name=card_name, content=clause.content
         )

@@ -31,14 +31,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
 from sqlalchemy import text  # noqa: E402
 
+from src.common.config import get_settings  # noqa: E402
 from src.common.db import dispose_engine, session_scope  # noqa: E402
 from src.common.exceptions import (  # noqa: E402
     ClausePipelineError,
     LlmPermanentError,
     LlmTransientError,
 )
-from src.common.llm import LlmClient, batch_profile  # noqa: E402
+from src.common.llm import LlmClient, batch_profile, build_provider  # noqa: E402
 from src.common.logging import get_logger, setup_logging  # noqa: E402
+from src.rag.category_schema import (  # noqa: E402
+    build_extraction_response_schema,
+    get_category_codes_or_fallback,
+)
 from src.rag.loader import RuleLoader  # noqa: E402
 from src.rag.models import Clause  # noqa: E402
 from src.rag.pdf_parser import extract_clauses, filter_rule_candidates  # noqa: E402
@@ -215,18 +220,34 @@ def main() -> int:
         logger.info("모두 처리되었습니다")
         return 0
 
-    client = LlmClient(batch_profile())
-    extractor = RuleExtractor(client)
+    settings = get_settings()
     totals = Totals()
+
+    def _build_extractor(categories: tuple[str, ...]) -> RuleExtractor:
+        # 프롬프트 문구(categories)와 Gemini responseSchema의 enum이 같은
+        # 목록을 가리켜야 하므로, 카테고리 소스가 정해진 뒤에야 client와
+        # extractor를 만들 수 있다. dry-run과 실적재는 카테고리 소스가
+        # 다르므로(DB vs 폴백) 분기마다 호출한다.
+        schema = build_extraction_response_schema(categories)
+        client = LlmClient(
+            batch_profile(),
+            provider=build_provider(settings, response_schema=schema),
+        )
+        return RuleExtractor(client, categories=categories)
 
     try:
         if args.dry_run:
             # dry-run 은 DB 없이 추출 결과만 확인하는 모드다.
             # 세션을 열면 DATABASE_URL 이 없는 환경에서 쓸 수 없다.
+            categories = get_category_codes_or_fallback(None)
+            extractor = _build_extractor(categories)
             run(pending, extractor, cache, done, totals, args, loader=None,
                 issuer="(dry-run)", card_name=f"card_id={args.card_id}")
         else:
             with session_scope() as session:
+                categories = get_category_codes_or_fallback(session)
+                extractor = _build_extractor(categories)
+
                 issuer, card_name = fetch_card(session, args.card_id)
                 loader = RuleLoader(session, args.card_id)
                 logger.info("대상 카드: %s %s", issuer, card_name)

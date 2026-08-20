@@ -15,6 +15,11 @@ from google.genai import types
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from src.common.logging import get_logger
+from src.rag.models import VALID_CATEGORIES
+
+logger = get_logger(__name__)
+
 _cached_categories: tuple[str, ...] | None = None
 
 
@@ -31,6 +36,25 @@ def get_category_codes(session: Session, *, refresh: bool = False) -> tuple[str,
         ).all()
         _cached_categories = tuple(r[0] for r in rows)
     return _cached_categories
+
+
+def get_category_codes_or_fallback(
+    session: Session | None, *, refresh: bool = False
+) -> tuple[str, ...]:
+    """세션이 없으면(--dry-run) VALID_CATEGORIES로 대체한다.
+
+    dry-run은 DB 연결 없이 추출 품질을 눈으로 확인하는 용도라 세션 자체가
+    없다. 이 경우 코드에 박힌 VALID_CATEGORIES로 대체하되, 마스터와
+    어긋날 수 있다는 사실을 경고 로그로 남긴다 — dry-run 결과를 볼 때
+    감안하라는 신호다.
+    """
+    if session is not None:
+        return get_category_codes(session, refresh=refresh)
+    logger.warning(
+        "DB 세션이 없어 category enum을 VALID_CATEGORIES로 대체합니다. "
+        "dry-run 결과가 실제 spend_category 마스터와 다를 수 있습니다."
+    )
+    return tuple(sorted(VALID_CATEGORIES))
 
 
 def build_extraction_response_schema(categories: tuple[str, ...]) -> types.Schema:

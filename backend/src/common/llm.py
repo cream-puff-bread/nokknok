@@ -193,11 +193,20 @@ class GeminiProvider:
         return "".join(p.get("text", "") for p in parts if "text" in p)
 
 
-def build_provider(settings: Settings) -> LlmProvider:
+def build_provider(
+    settings: Settings, *, response_schema: types.Schema | None = None
+) -> LlmProvider:
+    """response_schema는 Gemini에만 의미가 있다.
+
+    다른 제공자로 전환해도 호출부(예: RuleExtractor 조립 코드)가 분기할
+    필요가 없도록, Gemini가 아니면 조용히 무시한다.
+    """
     if settings.llm_provider == "anthropic":
         return AnthropicProvider(settings.llm_api_key, settings.llm_model)
     if settings.llm_provider == "gemini":
-        return GeminiProvider(settings.llm_api_key, settings.llm_model)
+        return GeminiProvider(
+            settings.llm_api_key, settings.llm_model, response_schema=response_schema
+        )
     return OpenAiProvider(settings.llm_api_key, settings.llm_model)
 
 
