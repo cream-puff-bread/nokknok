@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 import httpx
+from google.genai import types
 from tenacity import (
     RetryError,
     Retrying,
@@ -125,9 +126,78 @@ class OpenAiProvider:
         return choices[0].get("message", {}).get("content", "") or ""
 
 
+class GeminiProvider:
+    """Gemini generateContent REST API.
+
+    google-genai SDK는 네트워크 호출을 스스로 수행하는 방식이라, LlmClient가
+    httpx로 직접 쏘는 현재 구조(build_request가 반환한 url/headers/body를
+    그대로 전송)와 맞지 않는다(docs/decisions/002는 SDK를 "REST 직접 호출보다
+    이점이 크다"는 이유로 선택했지만, 그 이점은 응답 스키마 지원이지 전송
+    경로 자체는 아니다).
+
+    그래서 SDK는 responseSchema 구성에만 쓴다. google.genai.types.Schema는
+    REST JSON과 1:1 대응하도록 만들어져 있어 model_dump(by_alias=True)로
+    바로 REST 바디에 넣을 수 있다. 나머지(contents, systemInstruction 등)는
+    Gemini REST API 문서에 정의된 그대로 직접 구성한다 — SDK가 편의상
+    받아주는 문자열 축약형(system_instruction="...")은 실제 전송 시
+    SDK 내부에서 Content 객체로 정규화되므로, model_dump만으로는 그 변환을
+    재현할 수 없다. 이렇게 하면 재시도·타임아웃·예산 로직(LlmClient)을
+    Gemini 전용으로 따로 만들 필요가 없다.
+    """
+
+    BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        response_schema: types.Schema | None = None,
+    ) -> None:
+        self._api_key = api_key
+        self._model = model
+        self._response_schema = response_schema
+
+    def build_request(
+        self, system: str, user: str, max_tokens: int
+    ) -> tuple[str, dict[str, str], dict[str, Any]]:
+        url = f"{self.BASE_URL}/{self._model}:generateContent"
+        headers = {
+            "x-goog-api-key": self._api_key,
+            "content-type": "application/json",
+        }
+
+        generation_config: dict[str, Any] = {"maxOutputTokens": max_tokens}
+        if self._response_schema is not None:
+            # responseMimeType 없이 responseSchema만 주면 무시된다.
+            # 자유 텍스트로 답하고 파싱 방어에 기대는 대신, 둘을 함께
+            # 지정해 출력 형식 자체를 강제한다.
+            generation_config["responseMimeType"] = "application/json"
+            generation_config["responseSchema"] = self._response_schema.model_dump(
+                exclude_none=True, by_alias=True
+            )
+
+        body: dict[str, Any] = {
+            "systemInstruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": user}]}],
+            "generationConfig": generation_config,
+        }
+        return url, headers, body
+
+    def extract_text(self, payload: dict[str, Any]) -> str:
+        # candidates가 비면(안전 필터링 등) 후속 파싱이 아니라 여기서
+        # 빈 문자열로 끝낸다. 호출부가 JSON 파싱 실패로 한 번 더 헤매지 않도록.
+        candidates = payload.get("candidates", [])
+        if not candidates:
+            return ""
+        parts = candidates[0].get("content", {}).get("parts", [])
+        return "".join(p.get("text", "") for p in parts if "text" in p)
+
+
 def build_provider(settings: Settings) -> LlmProvider:
     if settings.llm_provider == "anthropic":
         return AnthropicProvider(settings.llm_api_key, settings.llm_model)
+    if settings.llm_provider == "gemini":
+        return GeminiProvider(settings.llm_api_key, settings.llm_model)
     return OpenAiProvider(settings.llm_api_key, settings.llm_model)
 
 
