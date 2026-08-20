@@ -125,6 +125,11 @@ def run(
     조항마다 커밋하고 그 뒤에 done 에 추가하면 두 기록이 어긋나지 않는다.
 
     조항 수가 수십 건 규모라 커밋 횟수가 성능에 영향을 주지 않는다.
+
+    done은 loader가 있을 때만(즉 dry-run이 아닐 때만) 추가한다. 진행
+    파일의 의미는 "DB 적재 완료"이지 "결과 출력 완료"가 아니다. dry-run은
+    DB에 아무것도 쓰지 않으므로 done에 넣으면, 그 뒤 실적재를 돌렸을 때
+    이미 완료로 기록된 조항을 전부 건너뛰어 아무것도 적재되지 않는다.
     """
     for idx, clause in enumerate(pending, start=1):
         key = clause_key(args.card_id, clause)
@@ -148,12 +153,14 @@ def run(
 
         if result.is_empty:
             totals.empty += 1
-            done.add(key)
+            if loader is not None:
+                done.add(key)
             continue
 
         if loader is None:
+            # dry-run: 결과만 눈으로 확인하고 끝낸다. DB에 아무것도
+            # 쓰지 않았으므로 done에 넣지 않는다.
             _print_result(result)
-            done.add(key)
             continue
 
         report = loader.load(result)
@@ -259,7 +266,10 @@ def main() -> int:
             # 배치는 반드시 연결을 명시적으로 해제한다.
             # 남겨두면 API 서버가 붙을 자리를 잠식한다.
             dispose_engine()
-        save_json(PROGRESS_FILE, {"done": sorted(done)})
+            # 진행 파일은 "DB 적재 완료" 기록이다. dry-run은 적재하지
+            # 않으므로 저장 자체를 하지 않는다 — done이 비어 있어도 저장하면
+            # 다음 실적재가 그 내용을 신뢰하고 조항을 건너뛸 수 있다.
+            save_json(PROGRESS_FILE, {"done": sorted(done)})
         if not args.no_cache:
             save_json(CACHE_FILE, cache)
 

@@ -38,11 +38,27 @@ class SensitiveDataFilter(logging.Filter):
         return text
 
 
+def _force_utf8(stream):
+    """스트림 인코딩을 UTF-8로 강제한다.
+
+    Windows 콘솔 기본 코드페이지(cp949)는 한글은 대부분 표현하지만
+    em-dash(—) 같은 일부 문자는 표현 범위 밖이라 로그를 남기는 순간
+    UnicodeEncodeError로 죽는다. 문제된 문자 하나만 바꿔서 넘어가면
+    다음에 다른 문자에서 또 터진다 — 인코딩 자체를 UTF-8로 강제해야
+    이 클래스의 오류가 재발하지 않는다. reconfigure가 없는 스트림
+    (테스트에서 StringIO 등을 handler에 직접 넘기는 경우)은 그대로 둔다.
+    """
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding="utf-8", errors="backslashreplace")
+    return stream
+
+
 def setup_logging() -> None:
     """루트 로거를 초기화한다. 애플리케이션 진입점에서 한 번만 호출한다."""
     settings = get_settings()
 
-    handler = logging.StreamHandler(sys.stdout)
+    handler = logging.StreamHandler(_force_utf8(sys.stdout))
     handler.setFormatter(
         logging.Formatter(
             "%(asctime)s %(levelname)-7s %(name)s | %(message)s",
