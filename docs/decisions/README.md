@@ -16,6 +16,7 @@
 | 001 | [벡터 검색을 도입하지 않는다](./001-no-vector-search.md) | 확정 | 전원 |
 | 002-1 | [LLM 제공자 — Gemini](./002-llm-provider-and-pipeline.md) | 확정 | @mango606, @fanfanduck |
 | 002-2 | [배치 파이프라인 구조 — 1단계](./002-llm-provider-and-pipeline.md) | 확정 | @mango606 |
+| 003 | [card_exclusion 중복 적재 방지](./003-exclusion-duplicate.md) | 미확정 | 전원 |
 
 미확정 항목은 코드 작성 전에 결정해야 한다. 결정 후 상태를 갱신하고,
 스키마나 의존성에 영향이 있으면 같은 커밋에서 함께 반영한다.
