@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -361,11 +362,13 @@ def parse_json_response(raw: str) -> dict[str, Any]:
 
     if text.startswith("```"):
         # ```json ... ``` 형태에서 내용만 남긴다.
-        lines = text.splitlines()
-        lines = lines[1:] if lines else lines
-        if lines and lines[-1].strip().startswith("```"):
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
+        # 줄 단위(splitlines()[1:])로 벗기면 코드펜스와 내용이 개행 없이
+        # 한 줄에 붙어 오는 경우(```json {...}```) 그 한 줄 전체가
+        # 잘려나가 빈 문자열이 된다. 정규식으로 시작/끝 펜스만 벗겨내면
+        # 한 줄이든 여러 줄이든 동일하게 처리된다.
+        text = re.sub(r"^```[a-zA-Z0-9_+-]*\s*", "", text)
+        text = re.sub(r"```\s*$", "", text)
+        text = text.strip()
 
     try:
         return json.loads(text)

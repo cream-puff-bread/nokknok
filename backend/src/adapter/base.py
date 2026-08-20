@@ -59,6 +59,14 @@ class Transaction:
 
     amount 는 원 단위 정수이며 지출이 양수다.
     실수형을 쓰지 않는 이유는 금액 비교와 합산에서 오차가 누적되기 때문이다.
+
+    환불·취소(음수)를 이 DTO로 표현하지 않는다. 이 서비스는 amount를
+    "확정된 지출"로만 다루도록 설계돼 있어(가용잔고·실적 계산이 전부
+    이 가정 위에 있다), 음수를 그대로 통과시키면 그 가정을 아는 모든
+    호출부가 각자 부호를 다시 확인해야 한다. 대신 어댑터가 원본 데이터
+    단계에서 환불을 걸러내고, 여기서는 그 불변식을 강제한다 — 이 DTO를
+    직접 생성하는 다른 경로(어댑터 구현체 추가 등)가 실수로 음수나 0을
+    넣어도 조용히 통과하지 않고 여기서 바로 걸린다.
     """
 
     txn_date: date
@@ -71,6 +79,10 @@ class Transaction:
     is_recurring: bool = False
 
     def __post_init__(self) -> None:
+        if self.amount <= 0:
+            raise ValueError(
+                f"거래 금액은 양수여야 합니다(환불·취소는 필터링 대상): {self.amount}"
+            )
         if self.payment_type is PaymentType.LUMP and self.installment_months != 0:
             raise ValueError("일시불 거래에 할부 개월이 지정되었습니다")
         if self.payment_type is not PaymentType.LUMP and self.installment_months <= 0:

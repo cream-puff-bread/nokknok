@@ -47,6 +47,29 @@ class TestTransaction:
                 installment_months=0,
             )
 
+    def test_금액이_0이하면_거부한다(self):
+        """amount는 항상 양수라는 불변식을 DTO 자체가 강제한다.
+
+        환불(음수)을 이 DTO로 표현하지 않기로 했으므로(file_provider가
+        어댑터 단계에서 걸러낸다), 여기서도 방어한다.
+        """
+        with pytest.raises(ValueError, match="양수"):
+            Transaction(
+                txn_date=date(2026, 8, 1),
+                merchant="테스트",
+                amount=0,
+                category="DINING",
+                payment_type=PaymentType.LUMP,
+            )
+        with pytest.raises(ValueError, match="양수"):
+            Transaction(
+                txn_date=date(2026, 8, 1),
+                merchant="테스트",
+                amount=-5_000,
+                category="DINING",
+                payment_type=PaymentType.LUMP,
+            )
+
 
 class TestFixedExpense:
     def test_90일_이상_미사용_구독을_의심_대상으로_본다(self):
@@ -184,6 +207,55 @@ class TestFileProvider:
         path = csv_file("이용일,가맹점,이용금액\n,,\n")
         with pytest.raises(DataSourceError, match="거래 내역이 없습니다"):
             FileProvider().fetch(str(path))
+
+    def test_음수_금액은_환불로_보고_필터링한다(self, csv_file):
+        """실제 사고 재현: abs()로 부호를 지우면 환불이 지출로 뒤집혀
+        실적·잔고 계산에 그대로 섞여 들어갔다. 지금은 필터링돼야 한다.
+        """
+        path = csv_file(
+            "이용일,가맹점,이용금액\n"
+            "2026-08-01,스타벅스,5000\n"
+            "2026-08-02,이마트,-30000\n"  # 환불
+            "2026-08-03,쿠팡,12000\n"
+        )
+        snapshot = FileProvider().fetch(str(path))
+
+        assert len(snapshot.transactions) == 2
+        dates = [t.txn_date.isoformat() for t in snapshot.transactions]
+        # 환불 거래가 abs()로 뒤집혀 30000 지출로 남으면 안 된다.
+        assert "2026-08-02" not in dates
+        assert all(t.amount > 0 for t in snapshot.transactions)
+
+    def test_인코딩_재시도_시_이전_시도의_행이_섞이지_않는다(self, tmp_path):
+        """실제 사고 재현.
+
+        utf-8-sig로 열면 파일 앞부분(내부 버퍼 크기 이내)은 우연히
+        디코딩에 성공해 rows에 먼저 담긴다. 그러다 한글이 CP949 바이트로
+        나오는 지점에서 UnicodeDecodeError가 나 cp949로 재시도한다.
+        rows를 시도마다 리셋하지 않으면, 실패한 utf-8-sig 시도에서 이미
+        담긴 행이 성공한 cp949 결과에 중복으로 섞인다.
+
+        버퍼 경계를 확실히 넘기기 위해 순수 ASCII 행을 충분히 채운 뒤
+        마지막에 한글 행을 하나 둔다(직접 확인: 400행 정도면 utf-8-sig가
+        약 295행까지 성공적으로 디코딩한 뒤에야 실패한다).
+        """
+        lines = ["date,merchant,amount"]
+        for i in range(400):
+            lines.append(f"2026-08-01,TestShop{i},{1000 + i}")
+        lines.append("2026-08-02,스타벅스,4500")
+        content = "\n".join(lines) + "\n"
+
+        path = tmp_path / "statement.csv"
+        path.write_bytes(content.encode("cp949"))
+
+        snapshot = FileProvider().fetch(str(path))
+
+        # ASCII 400건 + 한글 1건. 리셋이 안 되면 실패한 utf-8-sig 시도에서
+        # 담긴 앞부분 행이 cp949 재시도 결과에 겹쳐 더 많이 나온다.
+        assert len(snapshot.transactions) == 401
+        merchants = [t.merchant for t in snapshot.transactions]
+        assert merchants.count("TestShop0") == 1
+        assert merchants.count("스타벅스") == 1
 
 
 class TestCategoryClassification:

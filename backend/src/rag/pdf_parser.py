@@ -21,11 +21,18 @@ from src.rag.models import Clause
 
 logger = get_logger(__name__)
 
-# 조항 시작을 나타내는 패턴. 카드사 문서에서 흔한 형태를 모았다.
-_CLAUSE_HEAD = re.compile(
+# 최상위 조항 경계. '제N조' 구조가 있는 문서는 이것만 분할 기준으로 쓴다.
+# 조 안의 호 번호("1. 2. 3.")는 조의 내부 구조이지 새 조항의 시작이 아니다.
+# 예전에는 이 구분이 없어서, 제N조 안에서 호 번호가 줄바꿈 직후에 오면
+# _BULLET_HEAD 패턴이 그 줄을 새 조항으로 오인해 한 조를 여러 조각으로
+# 쪼갰다(뒤쪽 조각이 MIN_CLAUSE_LENGTH 미달로 유실되는 사고로 이어졌다).
+_ARTICLE_HEAD = re.compile(r"^\s*제\s*\d+\s*조", re.MULTILINE)
+
+# '제N조' 구조가 없는 문서에서만 쓰는 폴백 분할 기준.
+# 문서 전체가 글머리 기호나 번호 목록으로만 구성된 경우를 위한 것이다.
+_BULLET_HEAD = re.compile(
     r"^\s*("
-    r"제\s*\d+\s*조"          # 제1조
-    r"|[■●○◆▶]\s*\S"         # 불릿 기호
+    r"[■●○◆▶]\s*\S"         # 불릿 기호
     r"|\d+\.\s*\S"            # 1. 항목
     r"|\(\d+\)\s*\S"          # (1) 항목
     r"|[가-힣]\.\s*\S"        # 가. 항목
@@ -92,16 +99,25 @@ def extract_clauses(pdf_path: Path | str) -> list[Clause]:
 
 
 def split_into_clauses(text: str) -> list[str]:
-    """페이지 텍스트를 조항 단위로 자른다."""
+    """페이지 텍스트를 조항 단위로 자른다.
+
+    계층을 인식한다. '제N조' 마커가 있으면 그것만 분할 경계로 쓰고, 조
+    내부의 호 번호("1. 2. 3.")는 분할하지 않는다. '제N조' 구조가 아예
+    없는 문서(글머리 기호·번호 목록만으로 된 유의사항 등)에서만 그 목록
+    자체를 조항 경계로 쓴다.
+    """
     normalized = _normalize(text)
     if not normalized:
         return []
 
-    # 조항 머리 위치를 찾아 그 앞에서 자른다.
-    positions = [m.start() for m in _CLAUSE_HEAD.finditer(normalized)]
+    article_positions = [m.start() for m in _ARTICLE_HEAD.finditer(normalized)]
+    positions = article_positions or [
+        m.start() for m in _BULLET_HEAD.finditer(normalized)
+    ]
+
     if not positions:
         # 머리 패턴이 없으면 문단 단위로 자른다.
-        pieces = [p.strip() for p in re.split(r"\n{2,}", normalized)]
+        pieces = [p.strip() for p in re.split(r"\n{2,}", normalized) if p.strip()]
     else:
         if positions[0] > 0:
             positions.insert(0, 0)
@@ -109,11 +125,10 @@ def split_into_clauses(text: str) -> list[str]:
             normalized[start:end].strip()
             for start, end in zip(positions, positions[1:] + [len(normalized)])
         ]
+        pieces = [p for p in pieces if p]
 
     result: list[str] = []
-    for piece in pieces:
-        if len(piece) < MIN_CLAUSE_LENGTH:
-            continue
+    for piece in _merge_short_pieces(pieces):
         result.extend(_split_long(piece))
     return result
 
@@ -137,6 +152,28 @@ def filter_rule_candidates(clauses: list[Clause]) -> list[Clause]:
 
 
 # ---------- internal ----------
+def _merge_short_pieces(pieces: list[str]) -> list[str]:
+    """MIN_CLAUSE_LENGTH 미달 조각을 버리지 않고 직전 조각에 합친다.
+
+    예전에는 짧은 조각을 그냥 건너뛰었다. 분할 경계를 잘못 잡아 한 조항이
+    쪼개지면(예: 호 번호 앞 줄바꿈을 새 조항 시작으로 오인) 뒤쪽 조각이
+    이 길이 미달로 조용히 사라졌고, 그 안의 호(예: 카드 C 제6조 5·6호)가
+    LLM에 아예 전달되지 않는 사고로 이어졌다. 텍스트가 사라지는 경로를
+    없애기 위해 짧은 조각은 인접 조각에 흡수시킨다.
+
+    맨 앞 조각부터 짧으면(합칠 이전 조각이 없음) 그대로 둔다 — 버리는
+    것보다는 짧은 채로 남기는 편이 낫고, 어차피 규칙 키워드가 없으면
+    filter_rule_candidates 에서 자연히 걸러진다.
+    """
+    merged: list[str] = []
+    for piece in pieces:
+        if merged and len(piece) < MIN_CLAUSE_LENGTH:
+            merged[-1] = f"{merged[-1]} {piece}".strip()
+        else:
+            merged.append(piece)
+    return merged
+
+
 def _normalize(text: str) -> str:
     """PDF 추출 텍스트의 잡음을 정리한다."""
     # 단어 중간에 들어간 줄바꿈을 없앤다. PDF는 줄 끝마다 개행이 들어간다.
@@ -147,7 +184,12 @@ def _normalize(text: str) -> str:
 
 
 def _split_long(piece: str) -> list[str]:
-    """너무 긴 조각을 문장 경계에서 자른다."""
+    """너무 긴 조각을 문장 경계에서 자른다.
+
+    마지막 문장이 혼자 남아 MIN_CLAUSE_LENGTH 미달이 되는 경우가 있다.
+    여기서도 버리지 않고 직전 조각에 합친다 — split_into_clauses와 같은
+    원칙이다.
+    """
     if len(piece) <= MAX_CLAUSE_LENGTH:
         return [piece]
 
@@ -164,4 +206,4 @@ def _split_long(piece: str) -> list[str]:
 
     if buffer:
         chunks.append(buffer.strip())
-    return [c for c in chunks if len(c) >= MIN_CLAUSE_LENGTH]
+    return _merge_short_pieces(chunks)

@@ -133,11 +133,15 @@ class FileProvider:
 
     def _parse(self, path: Path) -> list[Transaction]:
         delimiter = "\t" if path.suffix.lower() == ".tsv" else ","
-        rows: list[Transaction] = []
-        skipped = 0
 
         # 카드사 명세서는 CP949 로 내려오는 경우가 많다. UTF-8 실패 시 대체한다.
+        # rows/skipped 를 시도마다 새로 시작하는 이유: 잘못된 인코딩도
+        # 파일 앞부분 일부는 우연히 유효하게 디코딩될 수 있다. 그 상태로
+        # UnicodeDecodeError 가 나서 다음 인코딩으로 넘어가면, 앞서 잘못된
+        # 인코딩으로 읽힌 행이 다음 시도의 결과에 그대로 섞여 중복 누적된다.
         for encoding in ("utf-8-sig", "cp949"):
+            rows: list[Transaction] = []
+            skipped = 0
             try:
                 with path.open("r", encoding=encoding, newline="") as fp:
                     reader = csv.DictReader(fp, delimiter=delimiter)
@@ -197,6 +201,9 @@ class FileProvider:
         except (ValueError, TypeError):
             return None
 
+        # amount <= 0 은 환불·취소(음수)와 0원 거래를 함께 걸러낸다.
+        # 환불을 별도 DTO로 다루지 않고 필터링하는 이유는 _parse_amount 의
+        # docstring 참고 — amount는 지출만 표현하는 게 이 서비스의 불변식이다.
         if txn_date is None or amount is None or amount <= 0 or not merchant:
             return None
 
@@ -235,13 +242,23 @@ class FileProvider:
 
     @staticmethod
     def _parse_amount(value: str | None) -> int | None:
+        """금액 문자열을 정수로 변환한다.
+
+        부호를 그대로 유지한다. 카드사 명세서에서 음수는 환불·취소 거래를
+        뜻하는데, abs()로 뒤집으면 환불이 지출로 계산되어 실적·잔고가
+        부풀려진다. Transaction.amount는 "지출은 양수"가 이 서비스 전체의
+        불변식이므로(Transaction.__post_init__, schema.sql의 transaction.amount
+        주석 참고) 음수를 DTO에 그대로 담지 않는다 — 호출부(_to_transaction)의
+        amount <= 0 필터가 환불 거래를 걸러낸다. 여기서 abs()로 부호를
+        지우면 그 필터가 절대 걸리지 않는 죽은 코드가 된다.
+        """
         if not value:
             return None
         # 콤마, 원 표기, 공백을 제거한다.
         cleaned = re.sub(r"[^\d\-]", "", value)
         if not cleaned or cleaned == "-":
             return None
-        return abs(int(cleaned))
+        return int(cleaned)
 
     @staticmethod
     def _parse_installment(value: str | None) -> tuple[int, bool]:

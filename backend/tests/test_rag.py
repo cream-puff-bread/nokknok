@@ -126,6 +126,14 @@ class TestParseJsonResponse:
         with pytest.raises(LlmPermanentError):
             parse_json_response("죄송하지만 답변할 수 없습니다")
 
+    def test_한_줄짜리_코드펜스도_처리한다(self):
+        """실제 사고 재현: 개행 없이 ```json {...}``` 로 오면
+        splitlines()[1:] 방식은 그 한 줄 전체를 잘라내 빈 문자열이 되고,
+        결과적으로 유효한 JSON인데도 파싱 실패로 처리됐다.
+        """
+        raw = '```json {"a": 1}```'
+        assert parse_json_response(raw) == {"a": 1}
+
 
 # ─────────────────────────────────────────────
 # 추출기
@@ -249,8 +257,40 @@ class TestClauseSplitting:
         )
         assert len(split_into_clauses(text)) >= 2
 
-    def test_너무_짧은_조각은_버린다(self):
-        assert split_into_clauses("1. 짧음\n2. 또짧음\n") == []
+    def test_너무_짧은_조각은_버리지_않고_직전_조각에_합친다(self):
+        """짧다고 버리면 텍스트가 조용히 사라진다. 인접 조각에 흡수시킨다."""
+        result = split_into_clauses("1. 짧음\n2. 또짧음\n")
+        assert result == ["1. 짧음 2. 또짧음"]
+
+    def test_제N조_안의_호_번호는_새_조항으로_분할하지_않는다(self):
+        """실제 사고 재현: 제6조 안의 호(5, 6번)가 줄바꿈 뒤에 오면
+        예전 정규식은 이를 새 조항 시작으로 오인해 조를 둘로 쪼갰고,
+        뒤 조각이 MIN_CLAUSE_LENGTH 미달로 사라졌다(카드 C 제6조 사고).
+        '제N조' 마커가 있으면 호 번호는 분할 경계가 아니어야 한다.
+        """
+        text = (
+            "제6조(전월 이용실적 제외 대상) 다음 각 호의 이용금액은 전월 "
+            "이용실적 산정에서 제외됩니다. 1\n. 국세 및 지방세. 2. 전기·가스·"
+            "수도 등 공과금. 3. 상품권 및 기프트카드 구매금액. 4. 보험료. \n"
+            "5. 학원비 등 교육비. 6. 무이자 할부 결제금액.\n"
+        )
+        result = split_into_clauses(text)
+        assert len(result) == 1
+        assert "학원비" in result[0]
+        assert "무이자" in result[0]
+
+    def test_제N조가_여러_개면_각각을_경계로_분할한다(self):
+        text = (
+            "제1조(목적) 이 약관은 카드 이용에 관한 사항을 정합니다.\n"
+            "제2조(정의) 1. 회원이란 카드를 발급받은 자를 말합니다. "
+            "2. 가맹점이란 카드로 결제할 수 있는 사업자를 말합니다.\n"
+        )
+        result = split_into_clauses(text)
+        assert len(result) == 2
+        assert result[0].startswith("제1조")
+        assert result[1].startswith("제2조")
+        # 제2조 안의 호 번호(1, 2)가 별도 조각으로 떨어지지 않아야 한다.
+        assert "가맹점" in result[1]
 
     def test_키워드가_없는_조항은_후보에서_제외한다(self):
         """LLM 호출 비용을 줄이는 필터가 실제로 동작하는지 확인한다."""

@@ -56,15 +56,26 @@ PROGRESS_FILE = PROGRESS_DIR / "ingest_progress.json"
 CACHE_FILE = PROGRESS_DIR / "llm_cache.json"
 
 
-def clause_key(card_id: int, clause: Clause) -> str:
+def clause_key(card_id: int, clause: Clause, categories: tuple[str, ...]) -> str:
     """조항을 식별하는 안정적인 키.
 
     내용 해시를 쓰는 이유는 PDF를 다시 파싱해도 같은 조항이면 같은 키가
     나와야 재개가 가능하기 때문이다. 순번을 쓰면 파싱 결과가 조금만
     달라져도 어긋난다.
+
+    카테고리 목록도 키에 포함한다. dry-run(세션이 없을 때의 폴백
+    VALID_CATEGORIES)과 실적재(DB spend_category)는 서로 다른 category
+    enum으로 Gemini responseSchema를 구성해 호출할 수 있다(category_schema.
+    get_category_codes_or_fallback 참고). 카테고리 소스가 다르면 사실상
+    다른 질의이므로 캐시를 공유하면 안 된다 — 공유하면 dry-run 중 만든
+    캐시가 실적재에 그대로 재사용되어, DB 마스터가 폴백 목록과 어긋난
+    뒤에도 낡은 카테고리 기준으로 뽑힌 결과가 조용히 재사용될 수 있다.
     """
-    digest = hashlib.sha256(clause.content.encode("utf-8")).hexdigest()[:16]
-    return f"{card_id}:{clause.doc_name}:{clause.page_no}:{digest}"
+    content_digest = hashlib.sha256(clause.content.encode("utf-8")).hexdigest()[:16]
+    category_digest = hashlib.sha256(
+        ",".join(categories).encode("utf-8")
+    ).hexdigest()[:8]
+    return f"{card_id}:{clause.doc_name}:{clause.page_no}:{content_digest}:{category_digest}"
 
 
 def load_json(path: Path) -> dict:
@@ -112,6 +123,7 @@ def run(
     totals: Totals,
     args,
     *,
+    categories: tuple[str, ...],
     loader: RuleLoader | None,
     issuer: str,
     card_name: str,
@@ -132,7 +144,7 @@ def run(
     이미 완료로 기록된 조항을 전부 건너뛰어 아무것도 적재되지 않는다.
     """
     for idx, clause in enumerate(pending, start=1):
-        key = clause_key(args.card_id, clause)
+        key = clause_key(args.card_id, clause, categories)
         logger.info("[%d/%d] p.%d 처리 중", idx, len(pending), clause.page_no)
 
         try:
@@ -216,17 +228,6 @@ def main() -> int:
     cache = {} if args.no_cache else load_json(CACHE_FILE)
     done: set[str] = set(progress.get("done", []))
 
-    pending = [c for c in candidates if clause_key(args.card_id, c) not in done]
-    logger.info(
-        "처리 대상 %d건 (전체 %d건 중 %d건 완료)",
-        len(pending),
-        len(candidates),
-        len(candidates) - len(pending),
-    )
-    if not pending:
-        logger.info("모두 처리되었습니다")
-        return 0
-
     settings = get_settings()
     totals = Totals()
 
@@ -242,23 +243,49 @@ def main() -> int:
         )
         return RuleExtractor(client, categories=categories)
 
+    def _pending(categories: tuple[str, ...]) -> list[Clause]:
+        # clause_key가 categories를 포함하므로(캐시가 카테고리 소스별로
+        # 갈리므로), pending 계산도 categories가 정해진 뒤에야 할 수 있다.
+        result = [
+            c
+            for c in candidates
+            if clause_key(args.card_id, c, categories) not in done
+        ]
+        logger.info(
+            "처리 대상 %d건 (전체 %d건 중 %d건 완료)",
+            len(result),
+            len(candidates),
+            len(candidates) - len(result),
+        )
+        return result
+
     try:
         if args.dry_run:
             # dry-run 은 DB 없이 추출 결과만 확인하는 모드다.
             # 세션을 열면 DATABASE_URL 이 없는 환경에서 쓸 수 없다.
             categories = get_category_codes_or_fallback(None)
+            pending = _pending(categories)
+            if not pending:
+                logger.info("모두 처리되었습니다")
+                return 0
+
             extractor = _build_extractor(categories)
-            run(pending, extractor, cache, done, totals, args, loader=None,
-                issuer="(dry-run)", card_name=f"card_id={args.card_id}")
+            run(pending, extractor, cache, done, totals, args, categories=categories,
+                loader=None, issuer="(dry-run)", card_name=f"card_id={args.card_id}")
         else:
             with session_scope() as session:
                 categories = get_category_codes_or_fallback(session)
+                pending = _pending(categories)
+                if not pending:
+                    logger.info("모두 처리되었습니다")
+                    return 0
+
                 extractor = _build_extractor(categories)
 
                 issuer, card_name = fetch_card(session, args.card_id)
                 loader = RuleLoader(session, args.card_id)
                 logger.info("대상 카드: %s %s", issuer, card_name)
-                run(pending, extractor, cache, done, totals, args,
+                run(pending, extractor, cache, done, totals, args, categories=categories,
                     loader=loader, issuer=issuer, card_name=card_name,
                     session=session)
     finally:
@@ -321,8 +348,11 @@ def _print_result(result) -> None:
     print(f"\n--- p.{result.clause.page_no} ---")
     print(result.clause.content[:120].replace("\n", " ") + " ...")
     for r in result.benefit_rules:
-        cap = f"{r.category_cap:,}원" if r.category_cap else "한도없음"
-        upper = f"{r.perf_max:,}" if r.perf_max else "무제한"
+        # review_rules.py와 동일한 이유로 is not None으로 판정한다.
+        # category_cap == 0(한도 0원)이나 perf_max == 0을 falsy로 처리하면
+        # "한도없음"/"무제한"으로 잘못 표시된다.
+        cap = f"{r.category_cap:,}원" if r.category_cap is not None else "한도없음"
+        upper = f"{r.perf_max:,}" if r.perf_max is not None else "무제한"
         print(
             f"  혜택 {r.category:<10} {r.discount_rate:>6.2%} "
             f"실적 {r.perf_min:,}~{upper} 한도 {cap}"
