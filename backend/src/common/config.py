@@ -5,15 +5,27 @@
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# config.py -> common -> src -> backend -> 레포 루트
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+_REPO_ROOT = _BACKEND_DIR.parent
+
 
 class Settings(BaseSettings):
+    # env_file 을 상대경로로 두면 실행 위치에 따라 .env 를 못 찾는다. README 는
+    # 레포 루트에 .env 를 두라고 안내하는데 API 서버와 pytest 는 backend/ 에서
+    # 실행하므로, 그 경우 설정이 조용히 전부 기본값이 된다. 예외가 나지 않고
+    # DATABASE_URL 이 빈 문자열이 될 뿐이라 발견이 늦다.
+    #
+    # 두 위치를 절대경로로 지정해 실행 위치와 무관하게 만든다. 뒤에 오는 파일이
+    # 우선하므로 backend/.env 를 따로 둔 사람은 그 값이 루트 .env 를 덮어쓴다.
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(_REPO_ROOT / ".env", _BACKEND_DIR / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
