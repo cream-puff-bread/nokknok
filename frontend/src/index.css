@@ -1,0 +1,4 @@
+/* Tailwind 진입점.
+   이 파일 외에 CSS 파일을 만들지 않는다. 스타일은 contracts/ui-system.md 의
+   클래스 조합을 그대로 쓴다(.claude/skills/nokknok-frontend/SKILL.md). */
+@import 'tailwindcss';
