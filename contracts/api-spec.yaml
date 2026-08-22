@@ -58,7 +58,10 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/BalanceResponse' }
         '404':
-          description: 페르소나 없음
+          description: 페르소나 없음 (PERSONA_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /api/simulate:
     post:
@@ -81,8 +84,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SimulationResponse' }
+        '404':
+          description: 페르소나 없음 (PERSONA_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
         '422':
-          description: 질의에서 금액을 추출하지 못함
+          description: 질의에서 금액을 추출하지 못함 (QUERY_PARSE_FAILED)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -111,14 +119,35 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RouteResponse' }
+        '404':
+          description: 페르소나 없음 (PERSONA_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422':
+          description: |
+            요청 값이 규칙 판정에 쓸 수 없는 경우.
+            category 가 spend_category 마스터에 없는 코드이거나(INVALID_CATEGORY),
+            amount 가 0 이하인 경우(INVALID_AMOUNT)다.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
 components:
   schemas:
     ErrorResponse:
       type: object
+      description: |
+        모든 오류 응답은 이 형식을 따른다.
+        FastAPI 기본 검증 오류 본문({ detail: [...] })을 그대로 내보내지 않는다.
       properties:
-        code:    { type: string, example: QUERY_PARSE_FAILED }
-        message: { type: string, description: 사용자에게 보여줄 안내 문구 }
+        code:
+          type: string
+          enum: [PERSONA_NOT_FOUND, QUERY_PARSE_FAILED, INVALID_CATEGORY, INVALID_AMOUNT]
+          example: QUERY_PARSE_FAILED
+        message:
+          type: string
+          description: 사용자에게 보여줄 안내 문구. 예외 원문을 그대로 싣지 않는다
 
     Persona:
       type: object
@@ -184,8 +213,11 @@ components:
           nullable: true
           description: 잔고가 음수로 전환되는 시점. 없으면 null
           properties:
-            month:    { type: string }
-            level:    { type: string }
+            month:    { type: string, example: 2026-11 }
+            level:
+              type: string
+              enum: [COMFORTABLE, NORMAL, TIGHT]
+              description: 적자로 먼저 전환되는 시나리오. types.ts 의 ScenarioLevel 과 같은 값 집합이다
             shortage: { type: integer }
         forecastMeta:
           type: object
