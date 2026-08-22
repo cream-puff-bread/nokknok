@@ -35,3 +35,6 @@ backend/.cache/
 .venv/
 *.egg-info/
 .pytest_cache/
+
+# 생성물
+data/generated/

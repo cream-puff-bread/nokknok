@@ -1,0 +1,365 @@
+#!/usr/bin/env python3
+"""약관 PDF에서 규칙을 추출해 DB에 적재한다.
+
+1단계 파이프라인이다. 조항을 하나씩 읽으면서 그 자리에서 규칙을 뽑고,
+조항과 규칙을 함께 저장한다. 나중에 둘을 다시 매칭할 필요가 없다.
+
+사용법:
+    python scripts/ingest_clauses.py --card-id 1 --pdf data/clauses/nokknok-a.pdf
+    python scripts/ingest_clauses.py --card-id 1 --pdf ... --dry-run
+
+재개:
+    LLM Rate limit 이나 네트워크 문제로 중단되면 처리 완료 목록이
+    data/generated/ingest_progress.json 에 남는다. 같은 명령을 다시 실행하면
+    처리하지 않은 조항부터 이어서 진행한다.
+
+비용:
+    LLM 응답은 캐시에 저장된다. 같은 조항을 다시 호출하지 않으므로
+    재실행 시 비용이 들지 않는다. 프롬프트를 수정했다면 --no-cache 를 쓴다.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+# 스크립트를 직접 실행할 때 backend/src 를 import 경로에 넣는다.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
+
+from sqlalchemy import text  # noqa: E402
+
+from src.common.config import get_settings  # noqa: E402
+from src.common.db import dispose_engine, session_scope  # noqa: E402
+from src.common.exceptions import (  # noqa: E402
+    ClausePipelineError,
+    LlmPermanentError,
+    LlmTransientError,
+)
+from src.common.llm import LlmClient, batch_profile, build_provider  # noqa: E402
+from src.common.logging import get_logger, setup_logging  # noqa: E402
+from src.rag.category_schema import (  # noqa: E402
+    build_extraction_response_schema,
+    get_category_codes_or_fallback,
+)
+from src.rag.loader import RuleLoader  # noqa: E402
+from src.rag.models import Clause  # noqa: E402
+from src.rag.pdf_parser import extract_clauses, filter_rule_candidates  # noqa: E402
+from src.rag.rule_extractor import RuleExtractor  # noqa: E402
+
+logger = get_logger("ingest_clauses")
+
+PROGRESS_DIR = Path("data/generated")
+PROGRESS_FILE = PROGRESS_DIR / "ingest_progress.json"
+CACHE_FILE = PROGRESS_DIR / "llm_cache.json"
+
+
+def clause_key(card_id: int, clause: Clause, categories: tuple[str, ...]) -> str:
+    """조항을 식별하는 안정적인 키.
+
+    내용 해시를 쓰는 이유는 PDF를 다시 파싱해도 같은 조항이면 같은 키가
+    나와야 재개가 가능하기 때문이다. 순번을 쓰면 파싱 결과가 조금만
+    달라져도 어긋난다.
+
+    카테고리 목록도 키에 포함한다. dry-run(세션이 없을 때의 폴백
+    VALID_CATEGORIES)과 실적재(DB spend_category)는 서로 다른 category
+    enum으로 Gemini responseSchema를 구성해 호출할 수 있다(category_schema.
+    get_category_codes_or_fallback 참고). 카테고리 소스가 다르면 사실상
+    다른 질의이므로 캐시를 공유하면 안 된다 — 공유하면 dry-run 중 만든
+    캐시가 실적재에 그대로 재사용되어, DB 마스터가 폴백 목록과 어긋난
+    뒤에도 낡은 카테고리 기준으로 뽑힌 결과가 조용히 재사용될 수 있다.
+    """
+    content_digest = hashlib.sha256(clause.content.encode("utf-8")).hexdigest()[:16]
+    category_digest = hashlib.sha256(
+        ",".join(categories).encode("utf-8")
+    ).hexdigest()[:8]
+    return f"{card_id}:{clause.doc_name}:{clause.page_no}:{content_digest}:{category_digest}"
+
+
+def load_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.warning("%s 를 읽을 수 없어 새로 시작합니다", path.name)
+        return {}
+
+
+def save_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def fetch_card(session, card_id: int) -> tuple[str, str]:
+    row = session.execute(
+        text("SELECT issuer, name FROM card WHERE id = :id"), {"id": card_id}
+    ).first()
+    if row is None:
+        raise ClausePipelineError(f"카드를 찾을 수 없습니다: id={card_id}")
+    return str(row[0]), str(row[1])
+
+
+class Totals:
+    """처리 결과 집계."""
+
+    def __init__(self) -> None:
+        self.clauses = 0
+        self.benefit = 0
+        self.exclusion = 0
+        self.dup = 0
+        self.empty = 0
+
+
+def run(
+    pending: list[Clause],
+    extractor: RuleExtractor,
+    cache: dict,
+    done: set[str],
+    totals: Totals,
+    args,
+    *,
+    categories: tuple[str, ...],
+    loader: RuleLoader | None,
+    issuer: str,
+    card_name: str,
+    session=None,
+) -> None:
+    """조항을 하나씩 처리한다.
+
+    조항 단위로 커밋하는 이유가 중요하다. 마지막에 한 번만 커밋하면
+    중간에 중단됐을 때 진행 상황 파일에는 '완료'로 기록되지만 DB는
+    롤백되어, 재실행해도 그 조항을 건너뛰는 상태가 된다.
+    조항마다 커밋하고 그 뒤에 done 에 추가하면 두 기록이 어긋나지 않는다.
+
+    조항 수가 수십 건 규모라 커밋 횟수가 성능에 영향을 주지 않는다.
+
+    done은 loader가 있을 때만(즉 dry-run이 아닐 때만) 추가한다. 진행
+    파일의 의미는 "DB 적재 완료"이지 "결과 출력 완료"가 아니다. dry-run은
+    DB에 아무것도 쓰지 않으므로 done에 넣으면, 그 뒤 실적재를 돌렸을 때
+    이미 완료로 기록된 조항을 전부 건너뛰어 아무것도 적재되지 않는다.
+    """
+    for idx, clause in enumerate(pending, start=1):
+        key = clause_key(args.card_id, clause, categories)
+        logger.info("[%d/%d] p.%d 처리 중", idx, len(pending), clause.page_no)
+
+        try:
+            if key in cache:
+                result = extractor.build_result(clause, cache[key])
+                logger.info("  캐시 사용")
+            else:
+                result = extractor.extract(clause, issuer, card_name)
+                cache[key] = _to_cache(result)
+        except LlmPermanentError as exc:
+            # 인증 오류 등은 재시도해도 소용없다. 즉시 중단한다.
+            logger.error("복구 불가능한 오류: %s", exc)
+            return
+        except LlmTransientError as exc:
+            # 재시도를 모두 소진했다. 여기까지의 진행 상황은 유지된다.
+            logger.error("재시도 실패, 여기서 중단합니다: %s", exc)
+            return
+
+        if result.is_empty:
+            totals.empty += 1
+            if loader is not None:
+                done.add(key)
+            continue
+
+        if loader is None:
+            # dry-run: 결과만 눈으로 확인하고 끝낸다. DB에 아무것도
+            # 쓰지 않았으므로 done에 넣지 않는다.
+            _print_result(result)
+            continue
+
+        report = loader.load(result)
+        # 커밋이 성공한 뒤에야 완료로 표시한다. 순서가 뒤바뀌면
+        # DB에 없는 조항이 완료로 기록되어 재실행으로도 복구되지 않는다.
+        if session is not None:
+            session.commit()
+
+        totals.clauses += report.clauses
+        totals.benefit += report.benefit_rules
+        totals.exclusion += report.exclusion_rules
+        totals.dup += report.skipped_duplicate
+        done.add(key)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="약관 PDF 규칙 추출·적재")
+    parser.add_argument("--card-id", type=int, required=True)
+    parser.add_argument("--pdf", type=Path, required=True)
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="DB에 적재하지 않고 추출 결과만 출력",
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="LLM 캐시를 무시하고 다시 호출 (프롬프트 수정 후 사용)",
+    )
+    parser.add_argument(
+        "--limit", type=int, default=0, help="처리할 조항 수 제한 (테스트용)"
+    )
+    args = parser.parse_args()
+
+    setup_logging()
+
+    # ── 1. 조항 추출 ──
+    try:
+        clauses = extract_clauses(args.pdf)
+    except ClausePipelineError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    candidates = filter_rule_candidates(clauses)
+    if args.limit:
+        candidates = candidates[: args.limit]
+    if not candidates:
+        logger.error("규칙 후보 조항이 없습니다")
+        return 1
+
+    # ── 2. 진행 상황과 캐시 로드 ──
+    progress = load_json(PROGRESS_FILE)
+    cache = {} if args.no_cache else load_json(CACHE_FILE)
+    done: set[str] = set(progress.get("done", []))
+
+    settings = get_settings()
+    totals = Totals()
+
+    def _build_extractor(categories: tuple[str, ...]) -> RuleExtractor:
+        # 프롬프트 문구(categories)와 Gemini responseSchema의 enum이 같은
+        # 목록을 가리켜야 하므로, 카테고리 소스가 정해진 뒤에야 client와
+        # extractor를 만들 수 있다. dry-run과 실적재는 카테고리 소스가
+        # 다르므로(DB vs 폴백) 분기마다 호출한다.
+        schema = build_extraction_response_schema(categories)
+        client = LlmClient(
+            batch_profile(),
+            provider=build_provider(settings, response_schema=schema),
+        )
+        return RuleExtractor(client, categories=categories)
+
+    def _pending(categories: tuple[str, ...]) -> list[Clause]:
+        # clause_key가 categories를 포함하므로(캐시가 카테고리 소스별로
+        # 갈리므로), pending 계산도 categories가 정해진 뒤에야 할 수 있다.
+        result = [
+            c
+            for c in candidates
+            if clause_key(args.card_id, c, categories) not in done
+        ]
+        logger.info(
+            "처리 대상 %d건 (전체 %d건 중 %d건 완료)",
+            len(result),
+            len(candidates),
+            len(candidates) - len(result),
+        )
+        return result
+
+    try:
+        if args.dry_run:
+            # dry-run 은 DB 없이 추출 결과만 확인하는 모드다.
+            # 세션을 열면 DATABASE_URL 이 없는 환경에서 쓸 수 없다.
+            categories = get_category_codes_or_fallback(None)
+            pending = _pending(categories)
+            if not pending:
+                logger.info("모두 처리되었습니다")
+                return 0
+
+            extractor = _build_extractor(categories)
+            run(pending, extractor, cache, done, totals, args, categories=categories,
+                loader=None, issuer="(dry-run)", card_name=f"card_id={args.card_id}")
+        else:
+            with session_scope() as session:
+                categories = get_category_codes_or_fallback(session)
+                pending = _pending(categories)
+                if not pending:
+                    logger.info("모두 처리되었습니다")
+                    return 0
+
+                extractor = _build_extractor(categories)
+
+                issuer, card_name = fetch_card(session, args.card_id)
+                loader = RuleLoader(session, args.card_id)
+                logger.info("대상 카드: %s %s", issuer, card_name)
+                run(pending, extractor, cache, done, totals, args, categories=categories,
+                    loader=loader, issuer=issuer, card_name=card_name,
+                    session=session)
+    finally:
+        if not args.dry_run:
+            # 배치는 반드시 연결을 명시적으로 해제한다.
+            # 남겨두면 API 서버가 붙을 자리를 잠식한다.
+            dispose_engine()
+            # 진행 파일은 "DB 적재 완료" 기록이다. dry-run은 적재하지
+            # 않으므로 저장 자체를 하지 않는다 — done이 비어 있어도 저장하면
+            # 다음 실적재가 그 내용을 신뢰하고 조항을 건너뛸 수 있다.
+            save_json(PROGRESS_FILE, {"done": sorted(done)})
+        if not args.no_cache:
+            save_json(CACHE_FILE, cache)
+
+    logger.info(
+        "완료 — 조항 %d, 혜택규칙 %d, 제외규칙 %d, 중복 %d, 규칙없음 %d",
+        totals.clauses,
+        totals.benefit,
+        totals.exclusion,
+        totals.dup,
+        totals.empty,
+    )
+    if not args.dry_run and totals.benefit + totals.exclusion > 0:
+        logger.info(
+            "적재된 규칙은 verified=false 입니다. "
+            "검수 후 true 로 바꿔야 판정에 사용됩니다."
+        )
+    return 0
+
+
+def _to_cache(result) -> dict:
+    """추출 결과를 캐시 형태로 직렬화한다.
+
+    Decimal 은 JSON 직렬화가 안 되므로 float 로 바꾼다.
+    캐시는 재현용이지 판정에 쓰이지 않으므로 정밀도 손실이 문제되지 않는다.
+    """
+    return {
+        "benefit_rules": [
+            {
+                "perf_min": r.perf_min,
+                "perf_max": r.perf_max,
+                "category": r.category,
+                "discount_rate": float(r.discount_rate),
+                "category_cap": r.category_cap,
+            }
+            for r in result.benefit_rules
+        ],
+        "exclusion_rules": [
+            {
+                "exclusion_type": r.exclusion_type.value,
+                "target_kind": r.target_kind.value,
+                "target_value": r.target_value,
+            }
+            for r in result.exclusion_rules
+        ],
+    }
+
+
+def _print_result(result) -> None:
+    print(f"\n--- p.{result.clause.page_no} ---")
+    print(result.clause.content[:120].replace("\n", " ") + " ...")
+    for r in result.benefit_rules:
+        # review_rules.py와 동일한 이유로 is not None으로 판정한다.
+        # category_cap == 0(한도 0원)이나 perf_max == 0을 falsy로 처리하면
+        # "한도없음"/"무제한"으로 잘못 표시된다.
+        cap = f"{r.category_cap:,}원" if r.category_cap is not None else "한도없음"
+        upper = f"{r.perf_max:,}" if r.perf_max is not None else "무제한"
+        print(
+            f"  혜택 {r.category:<10} {r.discount_rate:>6.2%} "
+            f"실적 {r.perf_min:,}~{upper} 한도 {cap}"
+        )
+    for r in result.exclusion_rules:
+        print(f"  제외 {r.exclusion_type.value:<12} {r.target_value}")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
