@@ -52,7 +52,7 @@ create_engine(settings.database_url, pool_size=settings.db_pool_max, max_overflo
 | 경로 | 타임아웃 | 재시도 |
 |---|---|---|
 | 배치 | `LLM_BATCH_TIMEOUT_MS` | `LLM_BATCH_MAX_RETRY` |
-| 런타임 | `LLM_RUNTIME_TIMEOUT_BUDGET_MS` (총 예산) | `LLM_RUNTIME_MAX_RETRY` |
+| 런타임 | `LLM_RUNTIME_TIMEOUT_BUDGET_MS` (총 예산) | 없음 (예산이 곧 중단 기준) |
 
 런타임은 총 예산 기준이므로 `tenacity` 의 `stop_after_delay` 를 사용한다.
 `stop_after_attempt` 만 쓰면 응답 시간이 보장되지 않는다.

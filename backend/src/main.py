@@ -13,8 +13,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.api.errors import register_error_handlers
 from src.api.health import router as health_router
-from src.common.config import Settings, get_settings
+from src.api.personas import router as personas_router
+from src.common.config import Settings, get_settings, loaded_env_files
 from src.common.db import dispose_engine
 from src.common.logging import get_logger, setup_logging
 
@@ -40,6 +42,24 @@ def allowed_origins(raw: str) -> list[str]:
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 
+def _log_env_files() -> None:
+    """읽은 .env 경로만 남긴다. 값은 절대 남기지 않는다."""
+    env_files = loaded_env_files()
+    if not env_files:
+        logger.info(".env 파일 없음 — 환경변수와 기본값만 사용합니다")
+        return
+
+    logger.info("설정 파일: %s", ", ".join(str(p) for p in env_files))
+    if len(env_files) > 1:
+        # 파일 단위 폴백이 아니라 키 단위 병합이다. 뒤 파일에 일부 키만 남아
+        # 있어도 그 키만 앞 파일 값을 덮어써서, 두 파일이 섞인 설정이 만들어진다.
+        logger.warning(
+            ".env 가 %d곳에 있습니다. 키 단위로 병합되어 뒤 파일의 값이 우선합니다. "
+            "한쪽에 오래된 키가 남아 있으면 의도하지 않은 값으로 동작합니다",
+            len(env_files),
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # get_settings() 를 다시 부르면 create_app() 에 주입한 설정이 무시되고
@@ -53,6 +73,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.environment,
         settings.db_pool_max,
     )
+    _log_env_files()
     yield
     # 커넥션을 반환하지 않고 종료하면 무료 티어의 낮은 동시 연결 한도를
     # 배치 스크립트와 나눠 쓰는 상황에서 자리를 잠식한다. Render 는 슬립
@@ -86,7 +107,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["Content-Type"],
     )
 
+    # 라우터보다 먼저 등록해도 되지만, 오류 형식이 엔드포인트 전체에
+    # 적용된다는 점을 드러내려고 마지막에 함께 둔다.
     app.include_router(health_router)
+    app.include_router(personas_router)
+    register_error_handlers(app)
     return app
 
 

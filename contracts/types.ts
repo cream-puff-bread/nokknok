@@ -139,6 +139,13 @@ export interface ComputeMeta {
   candidatesTotal: number;
   candidatesPruned: number;
   elapsedMs: number;
+  /**
+   * verified=false 규칙만 있어 후보에서 제외한 카드 수.
+   * 검수를 통과하지 않은 규칙은 판정에 쓰지 않으므로 오류가 아니라
+   * 정상 응답으로 처리하고, 제외했다는 사실만 노출한다.
+   * 다른 필드가 조합 단위 숫자인 것과 달리 이 값은 카드 단위다.
+   */
+  excludedUnverifiedCards: number;
 }
 
 export interface RouteResponse {
@@ -158,8 +165,29 @@ export interface RouteResponse {
   computeMeta: ComputeMeta;
 }
 
+/**
+ * 오류 코드. 화면 분기는 message 문구가 아니라 이 값으로 한다.
+ * message 는 그대로 노출해도 되는 안내 문구이며 예외 원문이 아니다.
+ */
+export type ApiErrorCode =
+  | 'PERSONA_NOT_FOUND'
+  | 'QUERY_PARSE_FAILED'
+  | 'INVALID_CATEGORY'
+  | 'INVALID_AMOUNT'
+  /** 요청 형식 자체가 잘못된 경우. 타입 불일치, 필수 값 누락 등. */
+  | 'INVALID_REQUEST'
+  /**
+   * 검수를 통과한 규칙을 가진 카드가 하나도 없어 판정 자체가 불가능한 경우.
+   * 입력을 고쳐도 해결되지 않으므로 재시도 버튼이 아니라 상황 안내를 보여준다.
+   * 일부 카드만 제외된 경우는 정상 응답이며 computeMeta.excludedUnverifiedCards
+   * 로 전달된다.
+   */
+  | 'NO_VERIFIED_RULE'
+  /** 처리되지 않은 서버 오류. */
+  | 'INTERNAL_ERROR';
+
 export interface ApiError {
-  code: string;
+  code: ApiErrorCode;
   message: string;
 }
 

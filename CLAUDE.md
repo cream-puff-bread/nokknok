@@ -24,7 +24,7 @@ User query ──[LLM] extracts parameters ──→ rule engine (owns all money
 - **If the LLM call fails, the numeric result still ships.** `explanation` becomes `null`; the computed numbers are never withheld. Frontend must render cards/results even when `explanation` is `null` — see `frontend/README.md`.
 - **No vector search anywhere**, runtime or batch. Evidence clauses are located by an exact join on `card_benefit_rule.clause_id` → `clause_source`, never by similarity search. The batch ingestion pipeline is intentionally single-stage: it inserts a clause section, gets its `id`, extracts rules from that same section, and stores the `clause_id` immediately — so there is never a "match rules back to clauses later" step that would need search. Full rationale in [docs/decisions/001](docs/decisions/001-no-vector-search.md) and [002](docs/decisions/002-llm-provider-and-pipeline.md); don't reintroduce `pgvector`, `pg_trgm`, or an embedding column without reopening that decision.
 - **Rule precedence is single-select, never additive.** When a spend category has both a category-specific rule and an `ALL` wildcard rule in the same performance bracket, exactly one applies (specific wins, `ALL` is the fallback) — they are never summed. This is enforced by the SQL pattern in `backend/README.md` (`ORDER BY ... LIMIT 1`), not by summing matched rows. Getting this wrong produces a plausible-looking but wrong discount number, which is the failure mode this whole system is designed to prevent.
-- **Two independent LLM call profiles, never share config**: batch (terms conversion) tolerates 5 retries / 15s timeout and resumes from a progress file on failure; runtime (query parsing, explanation) is budgeted on **total elapsed time**, not retry count (`tenacity.stop_after_delay`, 2 retries / 3.5s total budget) — on budget exhaustion it gives up mid-retry and returns `explanation=null`. Using batch settings on the runtime path is a real failure mode: it stalls the UI for up to a minute during a demo.
+- **Two independent LLM call profiles, never share config**: batch (terms conversion) tolerates 5 retries / 15s timeout and resumes from a progress file on failure; runtime (query parsing, explanation) is budgeted on **total elapsed time**, not retry count (`tenacity.stop_after_delay`, 3.5s total budget; there is deliberately **no** runtime retry-count setting — `stop_after_delay` only looks at elapsed time, so a count would be dead config that looks live) — on budget exhaustion it gives up mid-retry and returns `explanation=null`. Using batch settings on the runtime path is a real failure mode: it stalls the UI for up to a minute during a demo.
 
 ## Contracts — the cross-team interface boundary
 
@@ -47,10 +47,11 @@ backend/src/
 ├── rag/         terms parsing → clause+rule ingestion, single-stage pipeline (mango606)
 ├── engine/      card-combination optimizer, benefit-qualification logic (seohee-P) — currently unimplemented (stub __init__.py only)
 ├── forecast/    variable-spend time-series forecasting (fanfanduck) — currently unimplemented
-├── repository/  DB access (seohee-P) — currently unimplemented
-├── api/         endpoints, response assembly (fanfanduck) — currently unimplemented
+├── repository/  DB access — persona.py only (fanfanduck); card/rule queries pending (seohee-P)
+├── api/         endpoints, response assembly (fanfanduck) — main.py app factory,
+│                /api/health, /api/personas, /api/balance; simulate/route pending
 └── common/      config, logging, exceptions, LLM client (shared)
-frontend/src/    scaffolded only (api/, components/, pages/, types/ contain placeholder .gitkeep, no package.json yet)
+frontend/src/    React 19 + TS + Vite 8 + Tailwind 4 + Recharts 3 scaffold; App.tsx is a shell, no screens or router yet (see frontend/README.md)
 contracts/       cross-team interface contract (see above)
 data/            seed SQL for cards, clauses, personas + generated batch output
 scripts/         generate_persona.py, ingest_clauses.py (see Data pipeline commands below)
@@ -59,7 +60,11 @@ docs/decisions/  ADRs — read before revisiting search/LLM-provider/pipeline-st
 
 `src/adapter/` implements a `TransactionProvider` protocol with swappable backends — `MockProvider` (demo personas, needs DB session), `FileProvider` (user-uploaded card-issuer export, no DB), and a not-yet-built `MyDataProvider` (real 마이데이터 integration, requires a license nokknok doesn't have yet). Code above the adapter layer must not know which implementation is active; select via `src/adapter/factory.py`.
 
-`src/common/llm.py` wraps the LLM call behind an `LlmProvider` protocol so the provider is swappable via `LLM_PROVIDER`. **Note:** the provider abstraction currently implements Anthropic/OpenAI adapters and `Settings.llm_provider` is typed `Literal["anthropic", "openai"]`, but [docs/decisions/002](docs/decisions/002-llm-provider-and-pipeline.md) confirmed **Gemini** (`google-genai` SDK, already in `requirements.txt`) as the actual provider, chosen specifically for its structured-output/response-schema support. This adapter layer has not been updated to match yet — don't assume `llm.py`'s current provider set reflects the decided architecture.
+`src/common/llm.py` wraps the LLM call behind an `LlmProvider` protocol so the provider is swappable via `LLM_PROVIDER`. **Gemini is the decided and implemented provider** ([docs/decisions/002](docs/decisions/002-llm-provider-and-pipeline.md)), chosen for its structured-output/response-schema support; `GeminiProvider` builds the REST body directly and uses the `google-genai` SDK only to construct `responseSchema`. Anthropic/OpenAI adapters remain as fallbacks behind the same protocol — don't add provider-specific branching in call sites.
+
+**Error responses**: every endpoint returns `ErrorResponse {code, message}` from `src/api/errors.py`; FastAPI's default `{"detail": ...}` bodies for validation failures and unhandled exceptions are converted by handlers registered in `create_app()`. `message` is user-facing copy — never put exception text or field names in it (`contracts/ui-system.md` forbids showing raw errors). `ErrorCode` must stay in sync with the `enum` in `contracts/api-spec.yaml`; `tests/test_api_errors.py` asserts this.
+
+**Settings injection**: `create_app(settings)` stores settings on `app.state.settings`; `lifespan` reads them from there rather than calling `get_settings()` again, so a test that injects settings actually exercises them. Startup logs which `.env` paths were read (paths only, never values) — pydantic-settings merges the root and `backend/` files **key by key**, so a stale key left in one file silently overrides the other.
 
 ## Commands
 

@@ -2,8 +2,9 @@
 
 두 가지를 분리해서 다룬다.
 
-1. **제공자 추상화** — 제공자가 아직 확정되지 않았다(docs/decisions/002).
-   요청·응답 형식만 어댑터로 감싸두면 LLM_PROVIDER 환경변수 하나로 교체된다.
+1. **제공자 추상화** — Gemini 로 확정했다(docs/decisions/002). 요청·응답 형식만
+   어댑터로 감싸두면 LLM_PROVIDER 환경변수 하나로 교체할 수 있어, 무료 티어
+   한도나 모델 정책이 바뀌어도 호출부를 고치지 않는다.
 
 2. **배치와 런타임 프로파일** — 재시도 정책이 다르다.
 
@@ -218,13 +219,15 @@ def build_provider(
 class RetryProfile:
     """재시도 정책.
 
-    budget_ms 가 설정되면 총 소요 시간 기준으로 중단한다(런타임).
-    None 이면 시도 횟수 기준으로 중단한다(배치).
+    두 기준을 동시에 쓰지 않는다. 배치는 시도 횟수(max_retry), 런타임은 총
+    소요 시간(budget_ms)으로 중단한다. 런타임에 횟수를 함께 두면 실제로는
+    쓰이지 않는데 설정값만 존재해, 그 값을 바꾸면 동작이 달라진다고 오해하게
+    된다. 쓰지 않는 쪽은 None 으로 비워 어느 기준이 적용되는지 드러낸다.
     """
 
     name: str
     timeout_ms: int
-    max_retry: int
+    max_retry: int | None = None
     budget_ms: int | None = None
 
 
@@ -244,7 +247,7 @@ def runtime_profile(settings: Settings | None = None) -> RetryProfile:
         name="runtime",
         # 개별 호출 타임아웃이 총 예산보다 크면 예산이 의미를 잃는다.
         timeout_ms=min(s.llm_runtime_timeout_budget_ms, 3_000),
-        max_retry=s.llm_runtime_max_retry,
+        max_retry=None,
         budget_ms=s.llm_runtime_timeout_budget_ms,
     )
 
@@ -268,12 +271,17 @@ class LlmClient:
     # ---------- public ----------
     def complete(self, system: str, user: str, max_tokens: int = 2048) -> str:
         """텍스트를 생성한다. 실패 시 예외를 던진다."""
+        if self._profile.budget_ms is not None:
+            stop = stop_after_delay(self._profile.budget_ms / 1000)
+        elif self._profile.max_retry is not None:
+            stop = stop_after_attempt(self._profile.max_retry)
+        else:
+            raise ValueError(
+                f"재시도 중단 기준이 없습니다: profile={self._profile.name}"
+            )
+
         retrying = Retrying(
-            stop=(
-                stop_after_delay(self._profile.budget_ms / 1000)
-                if self._profile.budget_ms is not None
-                else stop_after_attempt(self._profile.max_retry)
-            ),
+            stop=stop,
             wait=wait_exponential(multiplier=0.5, min=0.5, max=8),
             retry=retry_if_exception_type(LlmTransientError),
             reraise=False,

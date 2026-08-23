@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.common.config import Settings
+from src.common.config import Settings, loaded_env_files
 
 # tests -> backend -> 레포 루트
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -34,3 +34,19 @@ def test_레포_루트의_env를_읽는다():
 def test_backend의_env도_읽는다():
     """backend/.env 를 따로 두고 쓰던 사람의 환경이 깨지지 않아야 한다."""
     assert _REPO_ROOT / "backend" / ".env" in _env_files()
+
+
+def test_읽은_env_경로를_알려준다():
+    """pydantic-settings 는 키 단위로 병합한다. 루트에 완전한 .env 가 있어도
+    backend/.env 에 일부 키만 남아 있으면 그 키만 덮어써져, 두 파일이 섞인
+    설정이 조용히 만들어진다. 기동 로그에 경로를 남기려면 이 값이 필요하다.
+    """
+    loaded = loaded_env_files()
+
+    assert all(p.exists() for p in loaded)
+    assert set(loaded) <= set(_env_files())
+
+
+def test_env_경로_조회는_값을_노출하지_않는다():
+    """반환값은 경로뿐이어야 한다. 값이 섞이면 로그에 자격증명이 남는다."""
+    assert all(isinstance(p, Path) for p in loaded_env_files())

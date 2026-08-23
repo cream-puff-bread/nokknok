@@ -15,6 +15,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
 _REPO_ROOT = _BACKEND_DIR.parent
 
+# 뒤에 오는 파일이 우선한다.
+_ENV_FILES: tuple[Path, ...] = (_REPO_ROOT / ".env", _BACKEND_DIR / ".env")
+
+
+def loaded_env_files() -> list[Path]:
+    """실제로 존재해서 읽히는 .env 경로. 값은 반환하지 않는다.
+
+    pydantic-settings 는 파일 단위가 아니라 키 단위로 병합한다. 루트에 완전한
+    .env 가 있어도 backend/.env 에 DATABASE_URL 한 줄만 남아 있으면 그 값이
+    이긴다. 두 파일이 섞인 설정이 조용히 만들어지고 어디에도 흔적이 남지
+    않으므로, 기동 시 경로만 로그로 남겨 이 상황이 드러나게 한다.
+    """
+    return [path for path in _ENV_FILES if path.exists()]
+
 
 class Settings(BaseSettings):
     # env_file 을 상대경로로 두면 실행 위치에 따라 .env 를 못 찾는다. README 는
@@ -25,7 +39,7 @@ class Settings(BaseSettings):
     # 두 위치를 절대경로로 지정해 실행 위치와 무관하게 만든다. 뒤에 오는 파일이
     # 우선하므로 backend/.env 를 따로 둔 사람은 그 값이 루트 .env 를 덮어쓴다.
     model_config = SettingsConfigDict(
-        env_file=(_REPO_ROOT / ".env", _BACKEND_DIR / ".env"),
+        env_file=_ENV_FILES,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -66,10 +80,13 @@ class Settings(BaseSettings):
     # ─── LLM 런타임 경로 (질의 해석, 결과 설명) ───
     # 동기 응답이므로 재시도 횟수가 아니라 총 소요 시간에 예산을 건다.
     # 예산을 넘기면 재시도 도중이라도 중단하고 대체 응답을 낸다.
+    #
+    # 횟수 설정을 두지 않는 이유는 stop_after_delay 가 예산만 보기 때문이다.
+    # 값을 남겨두면 실제로는 아무 효과가 없는데 바꾸면 동작이 달라진다고
+    # 오해하게 된다.
     llm_runtime_timeout_budget_ms: int = Field(
         default=3_500, alias="LLM_RUNTIME_TIMEOUT_BUDGET_MS"
     )
-    llm_runtime_max_retry: int = Field(default=2, alias="LLM_RUNTIME_MAX_RETRY")
 
     # ─── App ───
     port: int = Field(default=8000, alias="PORT")
