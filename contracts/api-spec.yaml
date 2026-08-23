@@ -42,6 +42,8 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Persona' }
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/balance:
     get:
@@ -62,6 +64,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422':
+          description: 요청 형식 오류 (INVALID_REQUEST)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/simulate:
     post:
@@ -90,10 +99,14 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
         '422':
-          description: 질의에서 금액을 추출하지 못함 (QUERY_PARSE_FAILED)
+          description: |
+            질의에서 금액을 추출하지 못했거나(QUERY_PARSE_FAILED)
+            요청 형식이 잘못된 경우(INVALID_REQUEST).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/route:
     post:
@@ -128,12 +141,22 @@ paths:
           description: |
             요청 값이 규칙 판정에 쓸 수 없는 경우.
             category 가 spend_category 마스터에 없는 코드이거나(INVALID_CATEGORY),
-            amount 가 0 이하인 경우(INVALID_AMOUNT)다.
+            amount 가 0 이하인 경우(INVALID_AMOUNT),
+            요청 형식 자체가 잘못된 경우(INVALID_REQUEST)다.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500':
+          $ref: '#/components/responses/InternalError'
 
 components:
+  responses:
+    InternalError:
+      description: 서버 내부 오류 (INTERNAL_ERROR)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
   schemas:
     ErrorResponse:
       type: object
@@ -143,7 +166,16 @@ components:
       properties:
         code:
           type: string
-          enum: [PERSONA_NOT_FOUND, QUERY_PARSE_FAILED, INVALID_CATEGORY, INVALID_AMOUNT]
+          enum:
+            - PERSONA_NOT_FOUND
+            - QUERY_PARSE_FAILED
+            - INVALID_CATEGORY
+            - INVALID_AMOUNT
+            # 요청 형식 자체가 잘못된 경우(타입 불일치, 필수 값 누락 등).
+            # FastAPI 가 자동으로 만들어내는 검증 실패를 이 코드로 통일한다.
+            - INVALID_REQUEST
+            # 처리되지 않은 서버 오류. 예외 원문은 절대 message 에 싣지 않는다.
+            - INTERNAL_ERROR
           example: QUERY_PARSE_FAILED
         message:
           type: string
@@ -305,3 +337,10 @@ components:
             candidatesTotal:  { type: integer }
             candidatesPruned: { type: integer }
             elapsedMs:        { type: integer }
+            excludedUnverifiedCards:
+              type: integer
+              description: |
+                verified=false 규칙만 있어 후보에서 제외한 카드 수.
+                검수를 통과하지 않은 규칙은 판정에 쓰지 않으므로 오류가 아니라
+                정상 응답으로 처리하고, 제외했다는 사실만 노출한다.
+                다른 필드가 조합 단위 숫자인 것과 달리 이 값은 카드 단위다.
