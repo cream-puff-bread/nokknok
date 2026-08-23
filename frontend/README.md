@@ -4,6 +4,11 @@ React 19 + TypeScript 5.9 + Vite 8 + Tailwind CSS 4 + Recharts 3.
 
 ## 실행
 
+**Node 20.19+ 또는 22.12+** 가 필요하다(`.nvmrc` 는 22). Vite 8 과
+`@vitejs/plugin-react` 가 요구하는 하한이며, `.npmrc` 의 `engine-strict=true`
+로 설치 단계에서 막는다. 경고만 띄우고 넘어가면 `npm run dev` 단계에서
+원인을 알기 어려운 형태로 깨진다.
+
 ```bash
 npm install
 npm run dev      # http://localhost:5173
