@@ -87,8 +87,9 @@ class RuleLoader:
     def __init__(self, session: Session, card_id: int) -> None:
         self._session = session
         self._card_id = card_id
-        # uq_rule_scope UNIQUE 제약 위반을 미리 걸러내기 위해 기존 키를 읽어둔다.
-        # DB에 맡기면 IntegrityError 로 트랜잭션이 깨져 나머지 조항이 날아간다.
+        # uq_rule_scope / uq_exclusion_scope UNIQUE 제약 위반을 미리 걸러내기 위해
+        # 기존 키를 읽어둔다. DB에 맡기면 IntegrityError 로 트랜잭션이 깨져
+        # 나머지 조항이 날아간다.
         self._seen_scopes = self._load_existing_scopes()
         self._seen_exclusions = self._load_existing_exclusions()
 
@@ -116,12 +117,24 @@ class RuleLoader:
             report.benefit_rules += 1
 
         for rule in result.exclusion_rules:
-            key = (rule.exclusion_type.value, rule.target_kind.value, rule.target_value)
-            if key in self._seen_exclusions:
+            # uq_exclusion_scope 와 동일한 키다. exclusion_type을 뺀 이유는
+            # docs/decisions/003 참조 — 같은 대상에 다른 exclusion_type이
+            # 공존하는 것 자체가 막아야 할 충돌이라 키에 넣지 않는다.
+            key = (rule.target_kind.value, rule.target_value)
+            existing_type = self._seen_exclusions.get(key)
+            if existing_type is not None:
+                if existing_type != rule.exclusion_type.value:
+                    logger.warning(
+                        "제외 규칙 대상 충돌 card_id=%d target=%s 기존=%s 신규=%s — 신규 건너뜀",
+                        self._card_id,
+                        key,
+                        existing_type,
+                        rule.exclusion_type.value,
+                    )
                 report.skipped_duplicate += 1
                 continue
             self._insert_exclusion(rule, clause_id)
-            self._seen_exclusions.add(key)
+            self._seen_exclusions[key] = rule.exclusion_type.value
             report.exclusion_rules += 1
 
         return report
@@ -133,11 +146,11 @@ class RuleLoader:
         ).all()
         return {(r[0], r[1], r[2]) for r in rows}
 
-    def _load_existing_exclusions(self) -> set[tuple[str, str, str]]:
+    def _load_existing_exclusions(self) -> dict[tuple[str, str], str]:
         rows = self._session.execute(
             _EXISTING_EXCLUSION, {"card_id": self._card_id}
         ).all()
-        return {(r[0], r[1], r[2]) for r in rows}
+        return {(r[1], r[2]): r[0] for r in rows}
 
     def _insert_clause(self, result: ExtractionResult) -> int:
         clause = result.clause
@@ -175,13 +188,21 @@ class RuleLoader:
             raise
 
     def _insert_exclusion(self, rule: ExclusionRule, clause_id: int) -> None:
-        self._session.execute(
-            _INSERT_EXCLUSION,
-            {
-                "card_id": self._card_id,
-                "exclusion_type": rule.exclusion_type.value,
-                "target_kind": rule.target_kind.value,
-                "target_value": rule.target_value,
-                "clause_id": clause_id,
-            },
-        )
+        try:
+            self._session.execute(
+                _INSERT_EXCLUSION,
+                {
+                    "card_id": self._card_id,
+                    "exclusion_type": rule.exclusion_type.value,
+                    "target_kind": rule.target_kind.value,
+                    "target_value": rule.target_value,
+                    "clause_id": clause_id,
+                },
+            )
+        except IntegrityError:
+            # 사전 검사를 통과했는데도 걸렸다면 동시 실행이 원인이다.
+            # 배치는 단독 실행이 전제이므로 여기 도달하면 설계를 다시 봐야 한다.
+            logger.exception(
+                "제외 규칙 적재 실패 target=%s", (rule.target_kind.value, rule.target_value)
+            )
+            raise
