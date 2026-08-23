@@ -41,8 +41,13 @@ def allowed_origins(raw: str) -> list[str]:
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    settings = get_settings()
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # get_settings() 를 다시 부르면 create_app() 에 주입한 설정이 무시되고
+    # 전역 설정으로 돈다. 지금은 로깅뿐이라 무해하지만, 여기에 DB 워밍업이나
+    # environment 분기가 들어가는 순간 테스트는 주입값으로 통과하고 배포에서만
+    # 다른 값으로 깨진다. 예외 없이 조용히 다른 값이 되는 계열이라 값을 하나만
+    # 흐르게 한다.
+    settings: Settings = app.state.settings
     logger.info(
         "API 서버 기동 environment=%s db_pool_max=%d",
         settings.environment,
@@ -71,6 +76,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description=_DESCRIPTION,
         lifespan=lifespan,
     )
+    # lifespan 은 앱 인스턴스만 받으므로 설정을 여기에 실어 전달한다.
+    app.state.settings = settings
 
     app.add_middleware(
         CORSMiddleware,

@@ -38,6 +38,35 @@ def test_헬스체크는_DB_설정_없이도_동작한다():
         assert client.get("/api/health").status_code == 200
 
 
+def test_주입한_설정이_app_state에_실린다():
+    """lifespan 은 앱 인스턴스만 받으므로 설정을 state 로 전달한다."""
+    settings = Settings(ENVIRONMENT="injected-test", DB_POOL_MAX=99, _env_file=None)  # type: ignore[call-arg]
+
+    app = create_app(settings)
+
+    assert app.state.settings is settings
+
+
+def test_lifespan이_전역_설정을_다시_읽지_않는다(monkeypatch):
+    """주입한 설정 대신 get_settings() 를 부르면 전역 설정으로 돈다.
+
+    지금은 lifespan 이 로깅뿐이라 무해하지만, DB 워밍업이나 environment 분기가
+    들어가면 테스트는 주입값으로 통과하고 배포에서만 다른 값으로 깨진다.
+    앱 생성이 끝난 뒤 get_settings 를 막아, 기동·종료 경로가 전역 설정을
+    건드리면 즉시 드러나게 한다.
+    """
+    settings = Settings(ENVIRONMENT="injected-test", DB_POOL_MAX=99, _env_file=None)  # type: ignore[call-arg]
+    app = create_app(settings)
+
+    def _fail() -> Settings:
+        raise AssertionError("lifespan 이 주입된 설정 대신 전역 설정을 읽었다")
+
+    monkeypatch.setattr("src.main.get_settings", _fail)
+
+    with TestClient(app) as client:
+        assert client.get("/api/health").status_code == 200
+
+
 def test_OpenAPI_문서에_헬스체크가_노출된다():
     """/docs 가 계약과 어긋나면 프론트가 잘못된 형식을 기준으로 작업하게 된다."""
     with TestClient(create_app()) as client:
