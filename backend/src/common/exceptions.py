@@ -64,6 +64,24 @@ class LlmBudgetExceededError(LlmError):
 
 
 # ─────────────────────────────────────────────
+# 최적화 엔진
+# ─────────────────────────────────────────────
+class NoVerifiedRuleError(NokknokError):
+    """검수를 통과한 규칙을 가진 카드가 하나도 없다.
+
+    verified=false 규칙은 판정에 쓰지 않는다. 일부 카드만 제외되는 것은
+    정상이며 그때는 계산을 계속하고 제외 카드 수만 알린다. 후보가 전부
+    사라져 best 를 만들 수 없을 때만 이 예외를 던진다.
+    """
+
+    def __init__(self, excluded_cards: int) -> None:
+        super().__init__(
+            f"검수를 통과한 규칙이 있는 카드가 없습니다 (제외 {excluded_cards}장)"
+        )
+        self.excluded_cards = excluded_cards
+
+
+# ─────────────────────────────────────────────
 # 약관 파이프라인
 # ─────────────────────────────────────────────
 class ClausePipelineError(NokknokError):

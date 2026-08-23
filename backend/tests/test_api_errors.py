@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from src.api.deps import get_db_session
 from src.api.errors import ErrorCode
-from src.common.exceptions import PersonaNotFoundError
+from src.common.exceptions import NoVerifiedRuleError, PersonaNotFoundError
 from src.main import create_app
 
 
@@ -54,6 +54,28 @@ def test_페르소나_없음은_404와_PERSONA_NOT_FOUND다(client: TestClient):
 
     assert response.status_code == 404
     assert response.json()["code"] == ErrorCode.PERSONA_NOT_FOUND
+
+
+def test_검수_통과_규칙_없음은_409와_NO_VERIFIED_RULE다(client: TestClient):
+    """요청은 올바르므로 422 와 구분한다.
+
+    422 는 입력을 고치면 해결되지만 이 경우는 이용자가 무엇을 바꿔도
+    달라지지 않는다. 상태 코드가 같으면 화면이 "입력을 확인하세요"와
+    "지금은 판정할 수 없습니다"를 구분할 근거를 잃는다.
+    """
+
+    def _raise() -> None:
+        raise NoVerifiedRuleError(excluded_cards=3)
+
+    client.app.dependency_overrides[get_db_session] = _raise  # type: ignore[attr-defined]
+
+    response = client.get("/api/personas")
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["code"] == ErrorCode.NO_VERIFIED_RULE
+    # 제외 카드 수 같은 내부 수치를 안내 문구에 노출하지 않는다.
+    assert "3" not in body["message"]
 
 
 def test_처리되지_않은_예외는_500과_INTERNAL_ERROR다(client: TestClient):

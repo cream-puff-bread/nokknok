@@ -146,6 +146,20 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: |
+            검수를 통과한 규칙을 가진 카드가 하나도 없어 판정할 수 없음
+            (NO_VERIFIED_RULE).
+
+            요청은 올바르므로 422 와 구분한다. 422 는 입력을 고치면 해결되지만
+            이 경우는 이용자가 무엇을 바꿔도 달라지지 않는다. 화면도 "입력을
+            확인하세요"가 아니라 "지금은 판정할 수 없습니다"여야 한다.
+
+            보유 카드로 실적 조건을 못 채우는 것은 이 경우가 아니다. 그때는
+            정상 응답에 newCardSuggestion 을 채운다.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -174,6 +188,10 @@ components:
             # 요청 형식 자체가 잘못된 경우(타입 불일치, 필수 값 누락 등).
             # FastAPI 가 자동으로 만들어내는 검증 실패를 이 코드로 통일한다.
             - INVALID_REQUEST
+            # 검수를 통과한 규칙을 가진 카드가 하나도 없어 판정 자체가 불가능한 경우.
+            # 일부 카드만 제외된 경우는 오류가 아니라 정상 응답이며
+            # computeMeta.excludedUnverifiedCards 로 알린다.
+            - NO_VERIFIED_RULE
             # 처리되지 않은 서버 오류. 예외 원문은 절대 message 에 싣지 않는다.
             - INTERNAL_ERROR
           example: QUERY_PARSE_FAILED

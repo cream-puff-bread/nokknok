@@ -19,7 +19,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from src.common.exceptions import PersonaNotFoundError
+from src.common.exceptions import NoVerifiedRuleError, PersonaNotFoundError
 from src.common.logging import get_logger
 
 logger = get_logger(__name__)
@@ -33,6 +33,7 @@ class ErrorCode(StrEnum):
     INVALID_CATEGORY = "INVALID_CATEGORY"
     INVALID_AMOUNT = "INVALID_AMOUNT"
     INVALID_REQUEST = "INVALID_REQUEST"
+    NO_VERIFIED_RULE = "NO_VERIFIED_RULE"
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
 
@@ -56,6 +57,19 @@ def register_error_handlers(app: FastAPI) -> None:
             404,
             ErrorCode.PERSONA_NOT_FOUND,
             "요청하신 페르소나를 찾을 수 없습니다.",
+        )
+
+    @app.exception_handler(NoVerifiedRuleError)
+    async def _no_verified_rule(request: Request, exc: NoVerifiedRuleError) -> JSONResponse:
+        # 요청은 올바르므로 422 가 아니다. 입력을 고쳐도 달라지지 않는 상황이라
+        # 화면이 "입력을 확인하세요"가 아니라 상황 안내를 띄워야 한다.
+        logger.warning(
+            "검수 통과 규칙 없음 path=%s 제외카드=%d", request.url.path, exc.excluded_cards
+        )
+        return error_response(
+            409,
+            ErrorCode.NO_VERIFIED_RULE,
+            "지금은 판정에 사용할 수 있는 카드가 없습니다. 규칙 검수가 끝나면 다시 이용할 수 있습니다.",
         )
 
     @app.exception_handler(RequestValidationError)
