@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import json
 import sys
@@ -44,7 +45,7 @@ from src.rag.category_schema import (  # noqa: E402
     build_extraction_response_schema,
     get_category_codes_or_fallback,
 )
-from src.rag.loader import RuleLoader  # noqa: E402
+from src.rag.loader import ExclusionConflict, RuleLoader  # noqa: E402
 from src.rag.models import Clause  # noqa: E402
 from src.rag.pdf_parser import extract_clauses, filter_rule_candidates  # noqa: E402
 from src.rag.rule_extractor import RuleExtractor  # noqa: E402
@@ -54,6 +55,20 @@ logger = get_logger("ingest_clauses")
 PROGRESS_DIR = Path("data/generated")
 PROGRESS_FILE = PROGRESS_DIR / "ingest_progress.json"
 CACHE_FILE = PROGRESS_DIR / "llm_cache.json"
+# uq_exclusion_scope 에 걸려 DB에 못 남는 충돌을 여기 남긴다. review_rules.py가
+# 있으면 읽어 리포트에 '충돌 이력' 섹션을 추가한다(docs/decisions/003).
+# data/generated/ 는 .gitignore 대상이라 진행 파일·캐시와 마찬가지로 커밋되지
+# 않는다 — 약관 적재 배치를 실행한 사람의 로컬 산출물이다.
+CONFLICT_LOG_FILE = PROGRESS_DIR / "ingest_exclusion_conflicts.jsonl"
+
+
+def append_conflicts(path: Path, conflicts: list[ExclusionConflict]) -> None:
+    if not conflicts:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        for conflict in conflicts:
+            f.write(json.dumps(dataclasses.asdict(conflict), ensure_ascii=False) + "\n")
 
 
 def clause_key(card_id: int, clause: Clause, categories: tuple[str, ...]) -> str:
@@ -112,6 +127,7 @@ class Totals:
         self.benefit = 0
         self.exclusion = 0
         self.dup = 0
+        self.conflict = 0
         self.empty = 0
 
 
@@ -180,11 +196,15 @@ def run(
         # DB에 없는 조항이 완료로 기록되어 재실행으로도 복구되지 않는다.
         if session is not None:
             session.commit()
+        # 충돌은 uq_exclusion_scope 때문에 DB에 안 남으므로 커밋과 별개로
+        # 파일에 남긴다. 커밋 뒤에 남겨야 실제로 반영된 시도만 기록에 남는다.
+        append_conflicts(CONFLICT_LOG_FILE, report.conflicts)
 
         totals.clauses += report.clauses
         totals.benefit += report.benefit_rules
         totals.exclusion += report.exclusion_rules
         totals.dup += report.skipped_duplicate
+        totals.conflict += report.skipped_conflict
         done.add(key)
 
 
@@ -301,17 +321,30 @@ def main() -> int:
             save_json(CACHE_FILE, cache)
 
     logger.info(
-        "완료 — 조항 %d, 혜택규칙 %d, 제외규칙 %d, 중복 %d, 규칙없음 %d",
+        "완료 — 조항 %d, 혜택규칙 %d, 제외규칙 %d, 중복제외 %d, 충돌제외 %d, 규칙없음 %d",
         totals.clauses,
         totals.benefit,
         totals.exclusion,
         totals.dup,
+        totals.conflict,
         totals.empty,
     )
     if not args.dry_run and totals.benefit + totals.exclusion > 0:
         logger.info(
             "적재된 규칙은 verified=false 입니다. "
             "검수 후 true 로 바꿔야 판정에 사용됩니다."
+        )
+    if totals.conflict > 0:
+        # 요약 숫자만 보고 지나칠 수 있으므로 별도 경고로 눈에 띄게 한다.
+        # 충돌은 완전 중복과 달리 LLM이 같은 조항에 모순된 해석을 낸
+        # 신호라 사람이 반드시 원문을 대조해야 한다.
+        logger.warning(
+            "제외 규칙 충돌 %d건 발견 — 같은 대상에 다른 exclusion_type이 나와 "
+            "새 값을 버렸습니다. %s 에 근거와 함께 기록했습니다. "
+            "review_rules.py 리포트의 '충돌 이력' 섹션이나 이 파일을 직접 열어 "
+            "기존 값과 근거 조항을 사람이 대조하세요.",
+            totals.conflict,
+            CONFLICT_LOG_FILE,
         )
     return 0
 

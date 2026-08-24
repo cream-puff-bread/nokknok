@@ -176,9 +176,39 @@ class TestUniqueExclusionPreCheck:
     대상(CATEGORY/TAX)에 다른 exclusion_type(BOTH)을 적재하려 하면 — 실제로
     LLM이 두 번째 호출에서 잘못 분류해 발생했던 상황 — uq_exclusion_scope와
     동일한 사전 검사 키가 이를 걸러내야 한다.
+
+    이 클래스는 또한 skipped_duplicate/skipped_conflict 분리를 검증한다.
+    완전히 같은 행이 다시 추출된 것(정상, 조치 불필요)과 같은 대상에 다른
+    exclusion_type이 나온 것(LLM이 모순된 해석을 낸 신호, 사람 검수 필요)은
+    성격이 다르므로 카운터가 어긋나면 안 된다.
     """
 
-    def test_같은_대상에_다른_exclusion_type이_들어오면_사전검사에서_걸러진다(
+    def test_완전히_같은_값이_재추출되면_duplicate이지_conflict가_아니다(
+        self, db_session
+    ):
+        # 시드의 (PERFORMANCE, CATEGORY, TAX)를 그대로 다시 추출한 상황.
+        # LLM이 같은 조항을 다시 봐도 일관되게 분류한 정상 케이스다.
+        loader = RuleLoader(db_session, card_id=CARD_A_ID)
+        result = _result(
+            [],
+            content="세금은 실적 산정에서만 제외된다 (일관된 재추출)",
+            exclusion_rules=[
+                ExclusionRule(
+                    exclusion_type=ExclusionType.PERFORMANCE,  # 시드와 동일
+                    target_kind=TargetKind.CATEGORY,
+                    target_value="TAX",
+                )
+            ],
+        )
+
+        report = loader.load(result)
+
+        assert report.exclusion_rules == 0
+        assert report.skipped_duplicate == 1
+        assert report.skipped_conflict == 0
+        assert report.conflicts == []
+
+    def test_같은_대상에_다른_exclusion_type이_들어오면_conflict로_걸러지고_duplicate로_새지_않는다(
         self, db_session
     ):
         loader = RuleLoader(db_session, card_id=CARD_A_ID)
@@ -197,7 +227,8 @@ class TestUniqueExclusionPreCheck:
         report = loader.load(result)
 
         assert report.exclusion_rules == 0
-        assert report.skipped_duplicate == 1
+        assert report.skipped_duplicate == 0
+        assert report.skipped_conflict == 1
 
         rows = db_session.execute(
             text(
@@ -211,6 +242,41 @@ class TestUniqueExclusionPreCheck:
         # 시드의 PERFORMANCE 행 하나만 있어야 한다. BOTH가 섞여 들어갔다면 충돌이 새어나간 것이다.
         assert len(rows) == 1
         assert rows[0][0] == "PERFORMANCE"
+
+    def test_conflict_레코드에_기존_신규_값과_근거가_함께_담긴다(self, db_session):
+        """사람이 어느 쪽이 맞는지 판단하려면 기존/신규 값과 근거 조항이 다 있어야 한다."""
+        loader = RuleLoader(db_session, card_id=CARD_A_ID)
+        new_content = "세금은 실적·할인 모두 제외된다 (오분류 재현, 근거 검증용)"
+        result = _result(
+            [],
+            content=new_content,
+            exclusion_rules=[
+                ExclusionRule(
+                    exclusion_type=ExclusionType.BOTH,
+                    target_kind=TargetKind.CATEGORY,
+                    target_value="TAX",
+                )
+            ],
+        )
+
+        report = loader.load(result)
+
+        assert len(report.conflicts) == 1
+        conflict = report.conflicts[0]
+        assert conflict.card_id == CARD_A_ID
+        assert conflict.target_kind == "CATEGORY"
+        assert conflict.target_value == "TAX"
+        assert conflict.existing_type == "PERFORMANCE"
+        assert conflict.existing_verified is True  # 시드는 verified=true
+        assert conflict.new_type == "BOTH"
+        # 신규 근거는 이번에 적재한 조항 원문 그대로여야 한다.
+        assert conflict.new_clause is not None
+        assert conflict.new_clause["content"] == new_content
+        # 시드의 (card_id=1, TAX) 행은 실제 제7조 원문에 연결돼 있다 — 이게
+        # 바로 사람이 "어느 쪽이 맞는지" 판단할 기존 근거다.
+        assert conflict.existing_clause is not None
+        assert "세금" in conflict.existing_clause["content"]
+        assert conflict.detected_at  # 빈 문자열이 아니어야 한다
 
     def test_같은_로더_인스턴스_안에서_적재한_제외규칙도_다음_load_호출에서_충돌_처리된다(
         self, db_session
@@ -246,8 +312,17 @@ class TestUniqueExclusionPreCheck:
 
         assert report1.exclusion_rules == 1
         assert report1.skipped_duplicate == 0
+        assert report1.skipped_conflict == 0
         assert report2.exclusion_rules == 0
-        assert report2.skipped_duplicate == 1
+        assert report2.skipped_duplicate == 0
+        assert report2.skipped_conflict == 1
+        # 방금 이 로더 인스턴스가 적재한 게 '기존' 값이 되므로 verified=False,
+        # 근거는 first 조항 원문이어야 한다.
+        conflict = report2.conflicts[0]
+        assert conflict.existing_type == "DISCOUNT"
+        assert conflict.existing_verified is False
+        assert conflict.existing_clause is not None
+        assert conflict.existing_clause["content"] == "첫 적재"
 
 
 class TestExclusionScopeDbConstraint:
