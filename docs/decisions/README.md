@@ -16,9 +16,10 @@
 | 001 | [벡터 검색을 도입하지 않는다](./001-no-vector-search.md) | 확정 | 전원 |
 | 002-1 | [LLM 제공자 — Gemini](./002-llm-provider-and-pipeline.md) | 확정 | @mango606, @fanfanduck |
 | 002-2 | [배치 파이프라인 구조 — 1단계](./002-llm-provider-and-pipeline.md) | 확정 | @mango606 |
-| 003 | [card_exclusion 중복 적재 방지](./003-exclusion-duplicate.md) | 미확정 | 전원 |
+| 003 | [card_exclusion 중복 적재 방지](./003-exclusion-duplicate.md) | 확정 | 전원 |
 | 004 | [조항 간 문맥 유실 — 검수 단계에서 교정](./004-clause-context-loss.md) | 확정 | @mango606 |
 | 005 | [변동 지출 예측 — 표본 구성과 콜드스타트 기준](./005-forecast-baseline.md) | 확정 | @fanfanduck |
+| 006 | [LLM 실패 모드 — 예산 클램프와 운영 규칙](./006-llm-failure-modes.md) | 확정 | @fanfanduck |
 
 미확정 항목은 코드 작성 전에 결정해야 한다. 결정 후 상태를 갱신하고,
 스키마나 의존성에 영향이 있으면 같은 커밋에서 함께 반영한다.
