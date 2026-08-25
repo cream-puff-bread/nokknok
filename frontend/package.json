@@ -13,6 +13,7 @@
     "dev": "vite",
     "prebuild": "node scripts/copy-contract.mjs",
     "build": "tsc --noEmit && vite build",
+    "pretypecheck": "node scripts/copy-contract.mjs",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview"
   },
