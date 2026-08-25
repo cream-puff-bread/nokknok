@@ -16,20 +16,34 @@ from decimal import Decimal
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from src.rag.loader import RuleLoader
-from src.rag.models import BenefitRule, Clause, ExtractionResult
+from src.rag.models import (
+    BenefitRule,
+    Clause,
+    ExclusionRule,
+    ExclusionType,
+    ExtractionResult,
+    TargetKind,
+)
 
 pytestmark = pytest.mark.integration
 
 CARD_A_ID = 1  # data/cards.seed.sql: NOKKNOK A (계단형)
 
 
-def _result(benefit_rules: list[BenefitRule], *, content: str) -> ExtractionResult:
+def _result(
+    benefit_rules: list[BenefitRule],
+    *,
+    content: str,
+    exclusion_rules: list[ExclusionRule] | None = None,
+) -> ExtractionResult:
     return ExtractionResult(
         clause=Clause(doc_name="통합테스트.pdf", page_no=1, content=content),
         benefit_rules=benefit_rules,
+        exclusion_rules=exclusion_rules or [],
     )
 
 
@@ -153,6 +167,197 @@ class TestUniqueScopePreCheck:
         assert report1.skipped_duplicate == 0
         assert report2.benefit_rules == 0
         assert report2.skipped_duplicate == 1
+
+
+class TestUniqueExclusionPreCheck:
+    """docs/decisions/003 id=12 재현 방지 회귀 테스트.
+
+    카드 1은 시드에서 이미 (PERFORMANCE, CATEGORY, TAX)를 가지고 있다. 같은
+    대상(CATEGORY/TAX)에 다른 exclusion_type(BOTH)을 적재하려 하면 — 실제로
+    LLM이 두 번째 호출에서 잘못 분류해 발생했던 상황 — uq_exclusion_scope와
+    동일한 사전 검사 키가 이를 걸러내야 한다.
+
+    이 클래스는 또한 skipped_duplicate/skipped_conflict 분리를 검증한다.
+    완전히 같은 행이 다시 추출된 것(정상, 조치 불필요)과 같은 대상에 다른
+    exclusion_type이 나온 것(LLM이 모순된 해석을 낸 신호, 사람 검수 필요)은
+    성격이 다르므로 카운터가 어긋나면 안 된다.
+    """
+
+    def test_완전히_같은_값이_재추출되면_duplicate이지_conflict가_아니다(
+        self, db_session
+    ):
+        # 시드의 (PERFORMANCE, CATEGORY, TAX)를 그대로 다시 추출한 상황.
+        # LLM이 같은 조항을 다시 봐도 일관되게 분류한 정상 케이스다.
+        loader = RuleLoader(db_session, card_id=CARD_A_ID)
+        result = _result(
+            [],
+            content="세금은 실적 산정에서만 제외된다 (일관된 재추출)",
+            exclusion_rules=[
+                ExclusionRule(
+                    exclusion_type=ExclusionType.PERFORMANCE,  # 시드와 동일
+                    target_kind=TargetKind.CATEGORY,
+                    target_value="TAX",
+                )
+            ],
+        )
+
+        report = loader.load(result)
+
+        assert report.exclusion_rules == 0
+        assert report.skipped_duplicate == 1
+        assert report.skipped_conflict == 0
+        assert report.conflicts == []
+
+    def test_같은_대상에_다른_exclusion_type이_들어오면_conflict로_걸러지고_duplicate로_새지_않는다(
+        self, db_session
+    ):
+        loader = RuleLoader(db_session, card_id=CARD_A_ID)
+        result = _result(
+            [],
+            content="세금은 실적·할인 모두 제외된다 (오분류 재현)",
+            exclusion_rules=[
+                ExclusionRule(
+                    exclusion_type=ExclusionType.BOTH,  # 시드는 PERFORMANCE — 충돌
+                    target_kind=TargetKind.CATEGORY,
+                    target_value="TAX",
+                )
+            ],
+        )
+
+        report = loader.load(result)
+
+        assert report.exclusion_rules == 0
+        assert report.skipped_duplicate == 0
+        assert report.skipped_conflict == 1
+
+        rows = db_session.execute(
+            text(
+                """
+                SELECT exclusion_type FROM card_exclusion
+                WHERE card_id = :card_id AND target_kind = 'CATEGORY' AND target_value = 'TAX'
+                """
+            ),
+            {"card_id": CARD_A_ID},
+        ).all()
+        # 시드의 PERFORMANCE 행 하나만 있어야 한다. BOTH가 섞여 들어갔다면 충돌이 새어나간 것이다.
+        assert len(rows) == 1
+        assert rows[0][0] == "PERFORMANCE"
+
+    def test_conflict_레코드에_기존_신규_값과_근거가_함께_담긴다(self, db_session):
+        """사람이 어느 쪽이 맞는지 판단하려면 기존/신규 값과 근거 조항이 다 있어야 한다."""
+        loader = RuleLoader(db_session, card_id=CARD_A_ID)
+        new_content = "세금은 실적·할인 모두 제외된다 (오분류 재현, 근거 검증용)"
+        result = _result(
+            [],
+            content=new_content,
+            exclusion_rules=[
+                ExclusionRule(
+                    exclusion_type=ExclusionType.BOTH,
+                    target_kind=TargetKind.CATEGORY,
+                    target_value="TAX",
+                )
+            ],
+        )
+
+        report = loader.load(result)
+
+        assert len(report.conflicts) == 1
+        conflict = report.conflicts[0]
+        assert conflict.card_id == CARD_A_ID
+        assert conflict.target_kind == "CATEGORY"
+        assert conflict.target_value == "TAX"
+        assert conflict.existing_type == "PERFORMANCE"
+        assert conflict.existing_verified is True  # 시드는 verified=true
+        assert conflict.new_type == "BOTH"
+        # 신규 근거는 이번에 적재한 조항 원문 그대로여야 한다.
+        assert conflict.new_clause is not None
+        assert conflict.new_clause["content"] == new_content
+        # 시드의 (card_id=1, TAX) 행은 실제 제7조 원문에 연결돼 있다 — 이게
+        # 바로 사람이 "어느 쪽이 맞는지" 판단할 기존 근거다.
+        assert conflict.existing_clause is not None
+        assert "세금" in conflict.existing_clause["content"]
+        assert conflict.detected_at  # 빈 문자열이 아니어야 한다
+
+    def test_같은_로더_인스턴스_안에서_적재한_제외규칙도_다음_load_호출에서_충돌_처리된다(
+        self, db_session
+    ):
+        # 새 대상(MERCHANT/통합테스트가맹점)으로 먼저 적재한 뒤, 같은 로더로
+        # 다른 exclusion_type을 넣으면 in-memory _seen_exclusions가 걸러야 한다.
+        loader = RuleLoader(db_session, card_id=CARD_A_ID)
+        first = _result(
+            [],
+            content="첫 적재",
+            exclusion_rules=[
+                ExclusionRule(
+                    exclusion_type=ExclusionType.DISCOUNT,
+                    target_kind=TargetKind.MERCHANT,
+                    target_value="통합테스트가맹점",
+                )
+            ],
+        )
+        second = _result(
+            [],
+            content="같은 대상, 다른 exclusion_type 재시도",
+            exclusion_rules=[
+                ExclusionRule(
+                    exclusion_type=ExclusionType.BOTH,
+                    target_kind=TargetKind.MERCHANT,
+                    target_value="통합테스트가맹점",
+                )
+            ],
+        )
+
+        report1 = loader.load(first)
+        report2 = loader.load(second)
+
+        assert report1.exclusion_rules == 1
+        assert report1.skipped_duplicate == 0
+        assert report1.skipped_conflict == 0
+        assert report2.exclusion_rules == 0
+        assert report2.skipped_duplicate == 0
+        assert report2.skipped_conflict == 1
+        # 방금 이 로더 인스턴스가 적재한 게 '기존' 값이 되므로 verified=False,
+        # 근거는 first 조항 원문이어야 한다.
+        conflict = report2.conflicts[0]
+        assert conflict.existing_type == "DISCOUNT"
+        assert conflict.existing_verified is False
+        assert conflict.existing_clause is not None
+        assert conflict.existing_clause["content"] == "첫 적재"
+
+
+class TestExclusionScopeDbConstraint:
+    """uq_exclusion_scope 가 RuleLoader 를 우회해도 실제로 막는지 검증한다.
+
+    사전 검사가 아니라 raw INSERT로 직접 제약을 건드린다. db_session은
+    테스트 종료 후 무조건 롤백하므로(conftest 참조) 여기서 만든 행은
+    실제 시드를 오염시키지 않는다.
+    """
+
+    def test_같은_대상에_다른_exclusion_type을_직접_INSERT하면_DB_제약에_걸린다(
+        self, db_session
+    ):
+        db_session.execute(
+            text(
+                """
+                INSERT INTO card_exclusion
+                    (card_id, exclusion_type, target_kind, target_value, verified)
+                VALUES (:card_id, 'PERFORMANCE', 'CATEGORY', 'DB제약테스트', true)
+                """
+            ),
+            {"card_id": CARD_A_ID},
+        )
+
+        with pytest.raises(IntegrityError):
+            db_session.execute(
+                text(
+                    """
+                    INSERT INTO card_exclusion
+                        (card_id, exclusion_type, target_kind, target_value, verified)
+                    VALUES (:card_id, 'BOTH', 'CATEGORY', 'DB제약테스트', true)
+                    """
+                ),
+                {"card_id": CARD_A_ID},
+            )
 
 
 class TestRollbackDoesNotPollute:

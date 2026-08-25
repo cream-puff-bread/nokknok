@@ -122,7 +122,12 @@ CREATE TABLE card_exclusion (
     CONSTRAINT chk_payment_type_target CHECK (
         target_kind <> 'PAYMENT_TYPE'
         OR target_value IN ('LUMP', 'INSTALLMENT', 'INTEREST_FREE')
-    )
+    ),
+    -- 같은 (target_kind, target_value)가 exclusion_type만 다르게 두 번 들어가면
+    -- 실적 제외인지 할인 제외인지 판정할 수 없다 — 세금이 PERFORMANCE 제외이면서
+    -- 동시에 BOTH 제외일 수는 없다. exclusion_type을 키에 넣지 않는 이유가 이것이다.
+    -- 네 컬럼 전체를 키로 잡으면 이 공존을 막지 못한다. docs/decisions/003 참조.
+    CONSTRAINT uq_exclusion_scope UNIQUE (card_id, target_kind, target_value)
 );
 
 CREATE INDEX idx_exclusion_card ON card_exclusion (card_id, exclusion_type);
