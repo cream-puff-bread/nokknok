@@ -19,7 +19,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from src.common.exceptions import NoVerifiedRuleError, PersonaNotFoundError
+from src.common.exceptions import (
+    InvalidAmountError,
+    InvalidCategoryError,
+    NoVerifiedRuleError,
+    PersonaNotFoundError,
+)
 from src.common.logging import get_logger
 
 logger = get_logger(__name__)
@@ -70,6 +75,24 @@ def register_error_handlers(app: FastAPI) -> None:
             409,
             ErrorCode.NO_VERIFIED_RULE,
             "지금은 판정에 사용할 수 있는 카드가 없습니다. 규칙 검수가 끝나면 다시 이용할 수 있습니다.",
+        )
+
+    @app.exception_handler(InvalidCategoryError)
+    async def _invalid_category(request: Request, exc: InvalidCategoryError) -> JSONResponse:
+        logger.info("잘못된 카테고리 path=%s category=%s", request.url.path, exc.category)
+        return error_response(
+            422,
+            ErrorCode.INVALID_CATEGORY,
+            "존재하지 않는 소비 카테고리입니다.",
+        )
+
+    @app.exception_handler(InvalidAmountError)
+    async def _invalid_amount(request: Request, exc: InvalidAmountError) -> JSONResponse:
+        logger.info("잘못된 금액 path=%s amount=%s", request.url.path, exc.amount)
+        return error_response(
+            422,
+            ErrorCode.INVALID_AMOUNT,
+            "금액은 0보다 커야 합니다.",
         )
 
     @app.exception_handler(RequestValidationError)
