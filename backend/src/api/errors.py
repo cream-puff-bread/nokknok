@@ -18,6 +18,10 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+# fastapi.HTTPException 이 아니라 상위 클래스인 Starlette 쪽에 걸어야 한다.
+# 없는 경로(404)와 잘못된 메서드(405)는 라우터가 상위 클래스로 던지므로,
+# 하위 클래스에 등록하면 핸들러 탐색이 그것을 찾지 못하고 기본 응답이 나간다.
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.common.exceptions import (
     NoVerifiedRuleError,
@@ -96,6 +100,35 @@ def register_error_handlers(app: FastAPI) -> None:
             422,
             ErrorCode.INVALID_REQUEST,
             "요청 값을 확인해 주세요.",
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_exception(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        """FastAPI 가 직접 던지는 오류도 형식을 맞춘다.
+
+        없는 경로(404), 잘못된 메서드(405), 본문 디코딩 실패(400)는
+        RequestValidationError 가 아니라 HTTPException 으로 올라와 기본
+        {"detail": ...} 본문이 그대로 나간다. 프론트가 화면 주소를 잘못
+        적기만 해도 ApiError 로 파싱되지 않는 응답을 받게 된다.
+
+        상태 코드는 그대로 두고 본문 형식만 바꾼다. HTTP 의미를 유지해야
+        브라우저·프록시·keep-alive 가 정상 동작한다.
+        """
+        logger.info(
+            "HTTP 오류 status=%d path=%s", exc.status_code, request.url.path
+        )
+        if exc.status_code >= 500:
+            return error_response(
+                exc.status_code,
+                ErrorCode.INTERNAL_ERROR,
+                "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+            )
+        return error_response(
+            exc.status_code,
+            ErrorCode.INVALID_REQUEST,
+            "요청을 처리할 수 없습니다. 입력을 확인해 주세요.",
         )
 
     @app.exception_handler(Exception)

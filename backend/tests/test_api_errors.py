@@ -111,3 +111,37 @@ def test_오류_코드_집합이_계약과_같다():
 
     for code in ErrorCode:
         assert f"- {code.value}" in spec, f"api-spec.yaml 에 {code.value} 가 없다"
+
+
+def test_없는_경로도_ErrorResponse_형식이다(client: TestClient):
+    """FastAPI 기본 404 는 {"detail": "Not Found"} 라 ApiError 로 파싱되지 않는다.
+
+    프론트가 화면 주소를 잘못 적기만 해도 계약을 벗어난 응답을 받는다.
+    """
+    response = client.get("/api/nope")
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["code"] == ErrorCode.INVALID_REQUEST
+    assert "detail" not in body
+
+
+def test_잘못된_메서드도_ErrorResponse_형식이다(client: TestClient):
+    response = client.post("/api/personas")
+
+    assert response.status_code == 405
+    assert response.json()["code"] == ErrorCode.INVALID_REQUEST
+
+
+def test_본문_디코딩_실패도_ErrorResponse_형식이다(client: TestClient):
+    """잘못된 UTF-8 본문은 RequestValidationError 가 아니라 HTTPException 이다."""
+    response = client.post(
+        "/api/simulate",
+        content=b'{"personaId":2,"query":"' + bytes([0xC0, 0xCE]) + b'"}',
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["code"] == ErrorCode.INVALID_REQUEST
+    assert "detail" not in body
