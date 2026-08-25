@@ -1,12 +1,14 @@
 """결제 라우팅 최적화 엔드포인트.
 
 계산은 src/engine/route.py가 전담한다(엔진은 LLM·RAG를 모른다). 여기서는
-요청 검증, DB·어댑터 조회, ruleId→근거 조항 조인, 응답 조립만 한다.
+요청 검증, DB·어댑터 조회, ruleId→근거 조항 조인, LLM 설명 생성, 응답
+조립만 한다.
 
-explanation은 항상 null이다. LLM 설명 생성(런타임 프로파일, 3.5초 예산)을
-연결하는 건 프롬프트 설계가 필요한 별도 작업이라 이번 범위에서 뺐다 —
-계약상 explanation=null은 허용된 상태이므로(CLAUDE.md), 숫자 결과를
-막지 않고 우선 내보낸다.
+explanation은 런타임 LLM 프로파일(LLM_RUNTIME_TIMEOUT_BUDGET_MS)로
+생성한다. LLM_API_KEY가 비어 있으면 실패가 뻔한 네트워크 호출로 예산을
+낭비하지 않도록 아예 건너뛴다 — 두 경우 모두 explanation=None이 되고,
+계산 결과(best 등)는 그대로 응답에 실린다(CLAUDE.md: LLM 실패 시에도
+계산 결과는 반드시 응답에 포함된다).
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from src.adapter.factory import SourceKind, build_provider
 from src.api.deps import get_db_session
+from src.api.explain import generate_explanation
 from src.api.schemas import (
     ClauseRefResponse,
     ComputeMetaResponse,
@@ -31,7 +34,9 @@ from src.api.schemas import (
     RouteRequest,
     RouteResponse,
 )
+from src.common.config import get_settings
 from src.common.exceptions import InvalidAmountError, InvalidCategoryError
+from src.common.llm import LlmClient, runtime_profile
 from src.common.logging import get_logger
 from src.engine.route import RouteCandidate, evaluate_route
 from src.repository import card as card_repo
@@ -96,13 +101,29 @@ def route_payment(session: SessionDep, body: RouteRequest) -> RouteResponse:
     )
     elapsed_ms = int((time.perf_counter() - started) * 1000)
 
-    rule_clause_id = {
-        rule.id: rule.clause_id for rules in rules_by_card.values() for rule in rules
-    }
-    best_clause_id = (
-        rule_clause_id.get(result.best.rule_id) if result.best.rule_id is not None else None
+    rule_by_id = {rule.id: rule for rules in rules_by_card.values() for rule in rules}
+    best_rule = (
+        rule_by_id.get(result.best.rule_id) if result.best.rule_id is not None else None
     )
-    clause = clause_repo.get_clause(session, best_clause_id) if best_clause_id else None
+    clause = (
+        clause_repo.get_clause(session, best_rule.clause_id)
+        if best_rule is not None and best_rule.clause_id is not None
+        else None
+    )
+
+    settings = get_settings()
+    explanation = None
+    if settings.llm_api_key:
+        explanation = generate_explanation(
+            LlmClient(runtime_profile(settings)),
+            result.best,
+            best_rule,
+            clause,
+            body.category,
+            body.amount,
+        )
+    else:
+        logger.info("LLM_API_KEY 없음 — explanation 생성을 건너뜁니다")
 
     logger.info(
         "라우팅 판정 persona_id=%d best_card=%d discount=%d elapsed_ms=%d",
@@ -115,7 +136,7 @@ def route_payment(session: SessionDep, body: RouteRequest) -> RouteResponse:
     return RouteResponse(
         best=RouteOptionResponse(
             **asdict(result.best),
-            explanation=None,
+            explanation=explanation,
             clauses=(
                 [
                     ClauseRefResponse(
