@@ -16,7 +16,7 @@ from enum import StrEnum
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 # fastapi.HTTPException 이 아니라 상위 클래스인 Starlette 쪽에 걸어야 한다.
 # 없는 경로(404)와 잘못된 메서드(405)는 라우터가 상위 클래스로 던지므로,
@@ -50,11 +50,22 @@ class ErrorResponse(BaseModel):
     message: str
 
 
-def error_response(status_code: int, code: ErrorCode, message: str) -> JSONResponse:
+def error_response(
+    status_code: int,
+    code: ErrorCode,
+    message: str,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
         content=ErrorResponse(code=code, message=message).model_dump(mode="json"),
+        headers=headers,
     )
+
+
+# 본문을 실을 수 없는 상태 코드. 204 는 "본문 없음"이 정의 자체이고
+# 304 는 캐시된 본문을 쓰라는 뜻이라, 둘 다 바디를 붙이면 스펙 위반이다.
+_NO_BODY_STATUS = frozenset({204, 304})
 
 
 def register_error_handlers(app: FastAPI) -> None:
@@ -119,16 +130,27 @@ def register_error_handlers(app: FastAPI) -> None:
         logger.info(
             "HTTP 오류 status=%d path=%s", exc.status_code, request.url.path
         )
+
+        # Starlette 기본 핸들러를 대체하므로 그쪽이 붙이던 헤더를 직접 넘겨야
+        # 한다. 405 의 Allow 처럼 프로토콜 수준에서 의미가 있는 헤더를 버리면
+        # 클라이언트가 "그럼 어떤 메서드를 써야 하나"를 알 방법이 없어진다.
+        headers = exc.headers or None
+
+        if exc.status_code in _NO_BODY_STATUS:
+            return Response(status_code=exc.status_code, headers=headers)
+
         if exc.status_code >= 500:
             return error_response(
                 exc.status_code,
                 ErrorCode.INTERNAL_ERROR,
                 "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+                headers=headers,
             )
         return error_response(
             exc.status_code,
             ErrorCode.INVALID_REQUEST,
             "요청을 처리할 수 없습니다. 입력을 확인해 주세요.",
+            headers=headers,
         )
 
     @app.exception_handler(Exception)

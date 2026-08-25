@@ -6,6 +6,7 @@ DB 없이 돈다. 세션 의존성은 오버라이드해 실제 연결을 만들
 from __future__ import annotations
 
 import pytest
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.testclient import TestClient
 
 from src.api.deps import get_db_session
@@ -145,3 +146,34 @@ def test_본문_디코딩_실패도_ErrorResponse_형식이다(client: TestClien
     body = response.json()
     assert body["code"] == ErrorCode.INVALID_REQUEST
     assert "detail" not in body
+
+
+def test_405에_Allow_헤더가_남는다(client: TestClient):
+    """Starlette 기본 핸들러를 대체하므로 그쪽이 붙이던 헤더를 직접 넘겨야 한다.
+
+    Allow 를 버리면 클라이언트가 "그럼 어떤 메서드를 써야 하나"를 알 방법이 없다.
+    """
+    response = client.post("/api/personas")
+
+    assert response.status_code == 405
+    assert response.headers.get("allow") is not None
+    assert "GET" in response.headers["allow"]
+
+
+def test_본문을_실을_수_없는_상태_코드에는_바디를_붙이지_않는다():
+    """204 는 "본문 없음"이 정의 자체이고 304 는 캐시된 본문을 쓰라는 뜻이다.
+
+    지금은 이 코드를 던지는 엔드포인트가 없지만, DELETE 를 추가하면서 204 를
+    쓰는 순간 스펙 위반 응답이 나간다.
+    """
+    app = create_app()
+
+    @app.get("/api/_no_content")
+    def _no_content() -> None:
+        raise StarletteHTTPException(status_code=204)
+
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        response = test_client.get("/api/_no_content")
+
+    assert response.status_code == 204
+    assert response.content == b""
