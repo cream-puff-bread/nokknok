@@ -1,6 +1,6 @@
 import type { Persona } from '../types/contract';
-import { apiGet } from './client';
+import { apiGet, type ApiGetOptions } from './client';
 
-export function fetchPersonas(): Promise<Persona[]> {
-  return apiGet<Persona[]>('/api/personas');
+export function fetchPersonas(options?: ApiGetOptions): Promise<Persona[]> {
+  return apiGet<Persona[]>('/api/personas', options);
 }

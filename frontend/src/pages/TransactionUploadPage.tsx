@@ -6,6 +6,7 @@ import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { Skeleton } from '../components/Skeleton';
+import type { ApiErrorCode } from '../types/contract';
 
 const ACCEPTED_EXTENSIONS = ['.csv', '.tsv'];
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // backend adapter/file_provider.py 와 동일한 상한
@@ -14,7 +15,7 @@ type UploadState =
   | { status: 'idle' }
   | { status: 'invalid'; fileName: string; message: string }
   | { status: 'uploading'; fileName: string }
-  | { status: 'error'; message: string }
+  | { status: 'error'; message: string; code: ApiErrorCode }
   | { status: 'empty' }
   | { status: 'success'; rowCount: number; skippedRowCount: number };
 
@@ -58,11 +59,14 @@ export function TransactionUploadPage() {
             },
       );
     } catch (err: unknown) {
-      const message =
+      const { message, code } =
         err instanceof ApiRequestError
-          ? err.message
-          : '업로드하지 못했습니다. 잠시 후 다시 시도해 주세요.';
-      setState({ status: 'error', message });
+          ? err
+          : {
+              message: '업로드하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+              code: 'INTERNAL_ERROR' as const,
+            };
+      setState({ status: 'error', message, code });
     }
   };
 
@@ -110,8 +114,25 @@ export function TransactionUploadPage() {
           <p className="text-sm text-red-600">{state.message}</p>
         )}
 
+        {/* mockUploadTransactions는 personaId를 조회하지 않으므로 지금은
+            PERSONA_NOT_FOUND를 내지 않는다(:personaId를 실제로 검증하게
+            되면 이 경로가 살아난다). code로 분기하는 원칙은 미리 맞춰둔다. */}
         {state.status === 'error' && (
-          <ErrorState message={state.message} onRetry={reset} />
+          state.code === 'PERSONA_NOT_FOUND' ? (
+            <ErrorState
+              message={state.message}
+              action={
+                <a
+                  href="/personas"
+                  className="bg-white hover:bg-gray-50 border border-gray-300 rounded-lg px-4 py-2 text-gray-700 text-sm font-medium transition-colors inline-block"
+                >
+                  페르소나 선택으로
+                </a>
+              }
+            />
+          ) : (
+            <ErrorState message={state.message} onRetry={reset} />
+          )
         )}
 
         {state.status === 'empty' && (
