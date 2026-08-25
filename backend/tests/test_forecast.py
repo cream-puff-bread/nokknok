@@ -78,17 +78,26 @@ class Test표본:
         assert result.txn_count == 3
         assert result.by_level[ScenarioLevel.NORMAL] == 100_000
 
-    def test_정기결제는_표본에서_뺀다(self):
-        """fixed_expense 에 이미 잡혀 있다. 양쪽에 넣으면 같은 돈을 두 번 뺀다."""
+    def test_정기결제도_표본에_넣는다(self):
+        """시드에서 is_recurring 거래는 통신요금뿐이고 fixed_expense 에 통신
+        항목이 없다. 빼면 페르소나마다 월 5만원가량이 예측에서 사라진다.
+
+        FileProvider 는 fixed_expenses=[] 를 반환하므로 업로드 경로에서는
+        정기 지출 전부가 사라진다. 정기 결제는 규칙적이라 중앙값·이동평균이
+        오히려 잘 다룬다.
+        """
         rows = [txn(date(2026, m, 5), 100_000) for m in (2, 3, 4)]
         rows += [txn(date(2026, m, 6), 50_000, recurring=True) for m in (2, 3, 4)]
 
         result = forecast_variable_spend(rows, today=TODAY)
 
-        assert result.by_level[ScenarioLevel.NORMAL] == 100_000
+        assert result.by_level[ScenarioLevel.NORMAL] == 150_000
 
     def test_할부_거래는_표본에서_뺀다(self):
-        """거래 금액은 구매가 전액이지만 현금 흐름은 여러 달에 나뉜다."""
+        """구매가 전액이 한 달에 잡히면 그 달 총액이 왜곡된다.
+
+        남은 회차는 사라지지 않는다. projection 이 확정 지출로 따로 더한다.
+        """
         rows = [txn(date(2026, m, 5), 100_000) for m in (2, 3, 4)]
         rows.append(
             txn(
@@ -308,3 +317,67 @@ class Test적자전환:
         assert meta.months_used == 1
         assert meta.txn_count == 1
         assert meta.cold_start is True
+
+
+class Test기존할부:
+    """이미 결제한 할부의 남은 회차.
+
+    금액과 날짜가 이미 정해져 있어 예측 대상이 아니라 계산 대상이다.
+    시드에서 persona 1 의 386,300원 6개월 할부는 거래로만 존재하고
+    fixed_expense 에는 없다 — 반영하지 않으면 통째로 누락된다.
+    """
+
+    def installment(self, day: date, amount: int, months: int) -> Transaction:
+        return txn(
+            day,
+            amount,
+            "ONLINE",
+            payment_type=PaymentType.INSTALLMENT,
+            installment_months=months,
+        )
+
+    def test_남은_회차만_앞으로_빠져나간다(self):
+        # 3월 15일에 60,000원 6개월 할부. 오늘은 5월 10일이므로 3·4월분은 지났고
+        # 5월부터 8월까지 네 회차가 남는다.
+        rows = [self.installment(date(2026, 3, 15), 60_000, 6)]
+
+        points = forecast_cashflow(
+            snapshot(transactions=rows), today=TODAY, months=6
+        ).scenarios[1].points
+
+        drops = [1_000_000 - points[0].balance] + [
+            points[i - 1].balance - points[i].balance for i in range(1, 6)
+        ]
+        assert drops[:4] == [10_000, 10_000, 10_000, 10_000]
+        assert drops[4:] == [0, 0]
+
+    def test_이미_지난_이번_달_청구는_다시_빼지_않는다(self):
+        """청구일이 오늘보다 앞이면 그 돈은 account_balance 에 반영돼 있다."""
+        rows = [self.installment(date(2026, 5, 3), 60_000, 6)]
+
+        points = forecast_cashflow(
+            snapshot(transactions=rows), today=TODAY, months=2
+        ).scenarios[1].points
+
+        assert points[0].balance == 1_000_000
+        assert points[1].balance == 990_000
+
+    def test_마지막_회차가_나머지를_흡수한다(self):
+        """나눗셈에서 버리면 청구 총액이 원금보다 적어진다."""
+        rows = [self.installment(date(2026, 5, 20), 100_000, 3)]
+
+        points = forecast_cashflow(
+            snapshot(transactions=rows), today=TODAY, months=4
+        ).scenarios[1].points
+
+        assert points[2].balance == 1_000_000 - 100_000
+        assert points[3].balance == points[2].balance
+
+    def test_예측_기간_밖의_회차는_무시한다(self):
+        rows = [self.installment(date(2026, 1, 20), 240_000, 24)]
+
+        points = forecast_cashflow(
+            snapshot(transactions=rows), today=TODAY, months=3
+        ).scenarios[1].points
+
+        assert 1_000_000 - points[2].balance == 10_000 * 3

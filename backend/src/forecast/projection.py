@@ -24,7 +24,7 @@ import calendar
 from collections.abc import Iterable
 from datetime import date
 
-from src.adapter.base import FinancialSnapshot, FixedExpense
+from src.adapter.base import FinancialSnapshot, FixedExpense, PaymentType, Transaction
 from src.common.logging import get_logger
 from src.forecast.models import (
     CashflowForecast,
@@ -82,6 +82,49 @@ def _fixed_schedule(
             schedule[offset] += expense.amount
             if left is not None:
                 left -= 1
+    return schedule
+
+
+def _transaction_installment_schedule(
+    transactions: Iterable[Transaction], *, today: date, months: int
+) -> list[int]:
+    """이미 결제한 할부의 남은 회차.
+
+    할부는 금액과 날짜가 이미 정해져 있어 예측 대상이 아니라 계산 대상이다.
+    변동 지출 표본에서는 빼지만(구매한 달만 비정상적으로 커진다) 남은 회차는
+    앞으로 실제로 빠져나가므로 여기서 더한다.
+
+    fixed_expense 의 INSTALLMENT 행이 같은 할부를 갖고 있다면 두 번 빠진다.
+    시드 데이터에서는 겹치지 않는다 — persona 1 의 386,300원 6개월 할부는
+    거래로만 존재하고 fixed_expense 에는 없다. 겹치기 시작하면 어느 쪽을
+    정본으로 삼을지 먼저 정해야 한다.
+
+    회차는 구매한 달부터 센다. 청구일은 거래일과 같다고 본다 — 카드사마다
+    다르고 거래 데이터에 청구일이 없어서 추정할 근거가 없다.
+    """
+    schedule = [0] * months
+    anchor = today.year * 12 + (today.month - 1)
+
+    for txn in transactions:
+        if txn.payment_type is PaymentType.LUMP or txn.installment_months <= 0:
+            continue
+
+        monthly = txn.amount // txn.installment_months
+        remainder = txn.amount - monthly * txn.installment_months
+        purchase_month = txn.txn_date.year * 12 + (txn.txn_date.month - 1)
+
+        for round_no in range(txn.installment_months):
+            offset = purchase_month + round_no - anchor
+            if offset < 0 or offset >= months:
+                continue
+            # 이번 달 청구일이 이미 지났으면 그 돈은 account_balance 에 반영돼 있다.
+            if offset == 0 and txn.txn_date.day <= today.day:
+                continue
+            amount = monthly
+            if round_no == txn.installment_months - 1:
+                amount += remainder
+            schedule[offset] += amount
+
     return schedule
 
 
@@ -153,6 +196,9 @@ def forecast_cashflow(
 
     spend = forecast_variable_spend(snapshot.transactions, today=today)
     fixed = _fixed_schedule(snapshot.fixed_expenses, today=today, months=months)
+    installments = _transaction_installment_schedule(
+        snapshot.transactions, today=today, months=months
+    )
     income = _income_schedule(snapshot, today=today, months=months)
     purchase_charges = _purchase_schedule(purchase, months=months)
     partial_ratio = _remaining_month_ratio(today)
@@ -166,7 +212,13 @@ def forecast_cashflow(
             variable = (
                 round(monthly_variable * partial_ratio) if offset == 0 else monthly_variable
             )
-            balance += income[offset] - fixed[offset] - variable - purchase_charges[offset]
+            balance += (
+                income[offset]
+                - fixed[offset]
+                - installments[offset]
+                - variable
+                - purchase_charges[offset]
+            )
             points.append(MonthlyPoint(month=_month_label(today, offset), balance=balance))
         scenarios.append(Scenario(level=level, points=points))
 
