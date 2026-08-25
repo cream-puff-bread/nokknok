@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -271,6 +272,17 @@ class LlmClient:
     # ---------- public ----------
     def complete(self, system: str, user: str, max_tokens: int = 2048) -> str:
         """텍스트를 생성한다. 실패 시 예외를 던진다."""
+        # stop_after_delay 는 "새 시도를 시작할지"만 본다. 마지막 시도가 예산
+        # 경계에서 시작하면 그 시도의 타임아웃만큼 총 시간이 더 늘어난다.
+        # 실제로 예산 3.5초인데 응답이 8.8초 걸린 적이 있다(제공자가 429 대신
+        # 응답을 아예 주지 않고 매달린 경우). 각 시도의 타임아웃을 남은 예산
+        # 안으로 줄여, 예산이 총 소요 시간을 실제로 묶게 한다.
+        deadline = (
+            time.monotonic() + self._profile.budget_ms / 1000
+            if self._profile.budget_ms is not None
+            else None
+        )
+
         if self._profile.budget_ms is not None:
             stop = stop_after_delay(self._profile.budget_ms / 1000)
         elif self._profile.max_retry is not None:
@@ -289,7 +301,7 @@ class LlmClient:
         try:
             for attempt in retrying:
                 with attempt:
-                    return self._call_once(system, user, max_tokens)
+                    return self._call_once(system, user, max_tokens, deadline)
         except RetryError as exc:
             if self._profile.budget_ms is not None:
                 raise LlmBudgetExceededError(
@@ -311,7 +323,13 @@ class LlmClient:
         return parse_json_response(raw)
 
     # ---------- internal ----------
-    def _call_once(self, system: str, user: str, max_tokens: int) -> str:
+    def _call_once(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int,
+        deadline: float | None = None,
+    ) -> str:
         """한 번 호출한다.
 
         이 메서드에서 나가는 예외는 **반드시 LlmError 계열이어야 한다.**
@@ -329,6 +347,13 @@ class LlmClient:
             ) from exc
 
         timeout = self._profile.timeout_ms / 1000
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise LlmBudgetExceededError(
+                    f"런타임 예산 {self._profile.budget_ms}ms 초과"
+                )
+            timeout = min(timeout, remaining)
 
         try:
             response = httpx.post(url, headers=headers, json=body, timeout=timeout)

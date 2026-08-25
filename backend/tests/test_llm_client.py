@@ -14,11 +14,14 @@
 
 from __future__ import annotations
 
+import time
+
 import httpx
 import pytest
 
 from src.common.config import Settings
 from src.common.exceptions import (
+    LlmBudgetExceededError,
     LlmError,
     LlmPermanentError,
     LlmTransientError,
@@ -104,3 +107,51 @@ class Test예외에_키가_실리지_않는다:
         assert secret not in str(exc_info.value)
         for char in secret:
             assert char not in str(exc_info.value)
+
+
+class Test예산이_총_소요_시간을_묶는다:
+    """stop_after_delay 는 "새 시도를 시작할지"만 본다.
+
+    마지막 시도가 예산 경계에서 시작하면 그 시도의 타임아웃만큼 총 시간이 더
+    늘어난다. 실제로 예산 3.5초인데 응답이 8.8초 걸린 적이 있다 — 제공자가
+    429 대신 응답을 아예 주지 않고 매달린 경우다. 무료 티어 할당량이 소진되면
+    깔끔한 429 가 아니라 이런 형태로 나타난다.
+    """
+
+    def test_응답하지_않는_제공자에도_예산_안에_끝난다(self, monkeypatch):
+        budget_ms = 600
+        profile = RetryProfile(
+            name="runtime-test", timeout_ms=5_000, budget_ms=budget_ms
+        )
+
+        def _hang(*args, **kwargs):
+            # 호출부가 넘긴 타임아웃을 그대로 존중하는 제공자를 흉내낸다.
+            time.sleep(kwargs.get("timeout", 5))
+            raise httpx.ReadTimeout("응답 없음")
+
+        monkeypatch.setattr(httpx, "post", _hang)
+        client = LlmClient(profile, provider=_BrokenExtractProvider(), settings=SETTINGS)
+
+        started = time.monotonic()
+        with pytest.raises(LlmBudgetExceededError):
+            client.complete("system", "user")
+        elapsed_ms = (time.monotonic() - started) * 1000
+
+        # 개별 타임아웃(5초)이 예산 안으로 줄어들지 않으면 여기서 5초를 넘긴다.
+        assert elapsed_ms < budget_ms * 2, f"{elapsed_ms:.0f}ms 걸림"
+
+    def test_예산이_이미_지났으면_호출하지_않는다(self, monkeypatch):
+        called = False
+
+        def _record(*args, **kwargs):
+            nonlocal called
+            called = True
+            raise httpx.ReadTimeout("응답 없음")
+
+        monkeypatch.setattr(httpx, "post", _record)
+        profile = RetryProfile(name="runtime-test", timeout_ms=1_000, budget_ms=1)
+        client = LlmClient(profile, provider=_BrokenExtractProvider(), settings=SETTINGS)
+
+        time.sleep(0.01)
+        with pytest.raises(LlmError):
+            client.complete("system", "user")
