@@ -156,13 +156,13 @@ docs: 약관 변환 파이프라인 설명 보강
 | Vercel | `frontend` | Ignored Build Step으로 `frontend/` 변경만 빌드 |
 | Render | `backend` | Build Filters로 `backend/**` 지정 |
 
-Vercel의 Ignored Build Step에 넣을 명령:
-
-```bash
-git diff --quiet HEAD^ HEAD -- frontend/
-```
-
 설정하지 않으면 한쪽만 고쳐도 양쪽이 모두 재배포되어 빌드 시간이 낭비되고, 재배포 중 서비스가 잠시 끊긴다.
+
+플랫폼 설정은 `render.yaml` 과 `frontend/vercel.json` 에 정의돼 있다. 대시보드에서만
+되는 설정, 비밀 환경변수 목록, 배포 후 확인 절차는 **[docs/deployment.md](./docs/deployment.md)** 참조.
+
+화면 코드는 배포 환경에서도 `/api/...` 상대경로로만 호출한다. Vercel rewrite 가 백엔드로
+전달하므로 브라우저 CORS 가 걸리지 않고, 화면 코드가 로컬과 배포에서 완전히 같다.
 
 ## 시연 안정성
 
