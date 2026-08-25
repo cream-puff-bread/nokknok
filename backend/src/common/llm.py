@@ -312,7 +312,22 @@ class LlmClient:
 
     # ---------- internal ----------
     def _call_once(self, system: str, user: str, max_tokens: int) -> str:
-        url, headers, body = self._provider.build_request(system, user, max_tokens)
+        """한 번 호출한다.
+
+        이 메서드에서 나가는 예외는 **반드시 LlmError 계열이어야 한다.**
+        호출부(설명 생성 등)는 `except LlmError` 로 대체 응답 경로를 잡는데,
+        다른 계열이 새어 나가면 그 방어를 통과해 계산 결과까지 함께 사라진다.
+        실제로 API 키에 비ASCII 문자가 섞였을 때 httpx 가 헤더를 만들다
+        UnicodeEncodeError(ValueError 하위)를 던져 /api/route 가 500 이 됐다.
+        """
+        try:
+            url, headers, body = self._provider.build_request(system, user, max_tokens)
+        except Exception as exc:
+            # 요청 구성 실패는 설정이 잘못된 것이라 재시도해도 같은 결과다.
+            raise LlmPermanentError(
+                f"LLM 요청을 구성하지 못했습니다: {type(exc).__name__}"
+            ) from exc
+
         timeout = self._profile.timeout_ms / 1000
 
         try:
@@ -321,6 +336,15 @@ class LlmClient:
             raise LlmTransientError(f"LLM 호출 타임아웃 ({timeout}s)") from exc
         except httpx.HTTPError as exc:
             raise LlmTransientError(f"LLM 호출 네트워크 오류: {exc}") from exc
+        except Exception as exc:
+            # httpx 는 요청을 전송하기 전 헤더·본문을 인코딩하는데, 여기서 나는
+            # 실패는 httpx.HTTPError 가 아니라 표준 예외로 올라온다.
+            # 예외 문구에 원인 값이 그대로 실릴 수 있어(UnicodeEncodeError 는
+            # 문제된 문자를 메시지에 담는다) 타입 이름만 남긴다 — API 키가
+            # 로그와 응답에 새는 경로를 만들지 않는다.
+            raise LlmPermanentError(
+                f"LLM 호출을 보내지 못했습니다: {type(exc).__name__}"
+            ) from exc
 
         self._raise_for_status(response)
 
@@ -329,7 +353,14 @@ class LlmClient:
         except ValueError as exc:
             raise LlmTransientError("LLM 응답이 JSON이 아닙니다") from exc
 
-        return self._provider.extract_text(payload)
+        try:
+            return self._provider.extract_text(payload)
+        except Exception as exc:
+            # 제공자가 예상과 다른 형태의 응답을 주면 파싱이 깨질 수 있다.
+            # 응답 형태가 바뀐 것이므로 재시도해도 같다.
+            raise LlmPermanentError(
+                f"LLM 응답에서 텍스트를 얻지 못했습니다: {type(exc).__name__}"
+            ) from exc
 
     @staticmethod
     def _raise_for_status(response: httpx.Response) -> None:
