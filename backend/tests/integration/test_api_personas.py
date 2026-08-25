@@ -116,3 +116,24 @@ def test_없는_페르소나는_404와_PERSONA_NOT_FOUND다(client: TestClient):
 
     assert response.status_code == 404
     assert response.json()["code"] == ErrorCode.PERSONA_NOT_FOUND
+
+
+def test_질의_카테고리_목록에서_와일드카드를_뺀다(db_session):
+    """spend_category 의 ALL 은 소비 카테고리가 아니라 규칙 매칭용 폴백이다.
+
+    거래·질의 카테고리로 새어 나가면 "카테고리 전용 규칙이 ALL 보다 우선한다"는
+    우선순위 규칙이 의미를 잃는다. 거래 자체가 ALL 이 되어 무엇이 전용이고
+    무엇이 폴백인지 구분할 수 없게 된다.
+    """
+    from src.repository.category import (
+        WILDCARD_CATEGORY,
+        list_category_codes,
+        list_purchase_category_codes,
+    )
+
+    every = list_category_codes(db_session)
+    purchasable = list_purchase_category_codes(db_session)
+
+    assert WILDCARD_CATEGORY in every
+    assert WILDCARD_CATEGORY not in purchasable
+    assert set(purchasable) == set(every) - {WILDCARD_CATEGORY}

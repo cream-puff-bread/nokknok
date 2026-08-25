@@ -11,6 +11,7 @@ import pytest
 
 from src.api.query_parser import (
     DEFAULT_INSTALLMENT_MONTHS,
+    FALLBACK_CATEGORY,
     MAX_QUERY_LENGTH,
     QueryParser,
     build_response_schema,
@@ -142,3 +143,18 @@ class Test응답스키마:
             "INSTALLMENT",
             "INTEREST_FREE",
         }
+
+
+class Test폴백_카테고리:
+    def test_목록에_폴백_코드가_없으면_생성_단계에서_막는다(self):
+        """프롬프트가 "분명하지 않으면 ETC" 라고 지시하는데 그 코드가 목록에
+        없으면, 모델은 존재하지 않는 값을 쓰라는 지시를 받는다.
+
+        조용히 넘어가면 애매한 질의마다 검증에서 걸려 계속 422 가 된다.
+        """
+        with pytest.raises(ValueError):
+            QueryParser(_StubClient(payload()), ("DINING", "ONLINE"))
+
+    def test_폴백_코드가_프롬프트에_실린다(self):
+        assert FALLBACK_CATEGORY in CATEGORIES
+        QueryParser(_StubClient(payload()), CATEGORIES)

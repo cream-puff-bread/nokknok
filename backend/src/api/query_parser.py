@@ -39,6 +39,10 @@ logger = get_logger(__name__)
 # 기본값으로 삼고, 해석 결과를 parsed 로 돌려줘 이용자가 확인하게 한다.
 DEFAULT_INSTALLMENT_MONTHS = 12
 
+# 무엇을 사는지 분명하지 않을 때 쓰는 카테고리. spend_category 마스터의 값이며,
+# 프롬프트가 이 코드를 직접 지시하므로 목록에 실제로 있는지 생성 시점에 확인한다.
+FALLBACK_CATEGORY = "ETC"
+
 # 질의 길이 상한. 긴 문장을 그대로 보내면 런타임 예산을 넘기기 쉽고
 # 비용도 는다. 화면 입력란도 같은 값으로 제한한다.
 MAX_QUERY_LENGTH = 200
@@ -52,7 +56,7 @@ SYSTEM_PROMPT = """당신은 카드 이용자의 질문에서 결제 조건만 �
 - 결제 방식은 {payment_types} 중 하나다. 명시가 없으면 LUMP 로 본다.
 - 할부인데 개월 수가 없으면 {default_months} 를 쓴다. 일시불이면 0 이다.
 - 카테고리는 다음 중 하나만 쓴다: {categories}
-  무엇을 사는지 분명하지 않으면 ETC 를 쓴다.
+  무엇을 사는지 분명하지 않으면 {fallback} 을 쓴다.
 - 금액을 찾을 수 없으면 amount 를 0 으로 둔다. 임의로 지어내지 않는다.
 - 계산하지 않는다. 잔고나 할인액을 추정하지 않는다."""
 
@@ -103,6 +107,13 @@ class QueryParser:
         # 프롬프트에 적는 목록과 응답 스키마 enum 이 다르면 모델이 "쓰라고 한 값"과
         # "허용된 값"이 어긋난 채로 호출을 받는다. 같은 목록을 양쪽에 쓴다.
         self._categories = tuple(categories)
+        if FALLBACK_CATEGORY not in self._categories:
+            # 프롬프트가 "분명하지 않으면 ETC" 라고 지시하는데 그 코드가 목록에
+            # 없으면, 모델은 존재하지 않는 값을 쓰라는 지시를 받는다. 조용히
+            # 넘어가면 애매한 질의마다 검증에서 걸려 계속 422 가 된다.
+            raise ValueError(
+                f"카테고리 목록에 폴백 코드({FALLBACK_CATEGORY})가 없습니다"
+            )
 
     def parse(self, query: str) -> ParsedQuery:
         query = query.strip()
@@ -114,6 +125,7 @@ class QueryParser:
         system = SYSTEM_PROMPT.format(
             payment_types=", ".join(_PAYMENT_TYPES),
             default_months=DEFAULT_INSTALLMENT_MONTHS,
+            fallback=FALLBACK_CATEGORY,
             categories=", ".join(self._categories),
         )
 

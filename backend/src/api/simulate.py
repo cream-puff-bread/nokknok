@@ -22,10 +22,8 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-
 from src.adapter.factory import SourceKind, build_provider
-from src.api.deps import get_db_session, get_query_parser
+from src.api.deps import SessionDep, get_query_parser
 from src.api.query_parser import ParsedQuery, QueryParser
 from src.api.schemas import (
     DeadPointResponse,
@@ -44,7 +42,6 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api", tags=["simulate"])
 
-SessionDep = Annotated[Session, Depends(get_db_session)]
 ParserDep = Annotated[QueryParser, Depends(get_query_parser)]
 
 
