@@ -46,7 +46,8 @@ backend/src/
 ├── adapter/     data-source abstraction (mango606)
 ├── rag/         terms parsing → clause+rule ingestion, single-stage pipeline (mango606)
 ├── engine/      card-combination optimizer, benefit-qualification logic (seohee-P) — currently unimplemented (stub __init__.py only)
-├── forecast/    variable-spend time-series forecasting (fanfanduck) — currently unimplemented
+├── forecast/    variable-spend time-series forecasting (fanfanduck) — quantile band
+│                + balance projection; see docs/decisions/005 before changing the sample rules
 ├── repository/  DB access — persona.py only (fanfanduck); card/rule queries pending (seohee-P)
 ├── api/         endpoints, response assembly (fanfanduck) — main.py app factory,
 │                /api/health, /api/personas, /api/balance; simulate/route pending
