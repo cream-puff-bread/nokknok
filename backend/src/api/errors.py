@@ -19,7 +19,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from src.common.exceptions import NoVerifiedRuleError, PersonaNotFoundError
+from src.common.exceptions import (
+    NoVerifiedRuleError,
+    PersonaNotFoundError,
+    QueryParseError,
+)
 from src.common.logging import get_logger
 
 logger = get_logger(__name__)
@@ -57,6 +61,17 @@ def register_error_handlers(app: FastAPI) -> None:
             404,
             ErrorCode.PERSONA_NOT_FOUND,
             "요청하신 페르소나를 찾을 수 없습니다.",
+        )
+
+    @app.exception_handler(QueryParseError)
+    async def _query_parse_failed(request: Request, exc: QueryParseError) -> JSONResponse:
+        # 설명 생성 실패와 다르다. 설명은 없어도 숫자를 낼 수 있지만, 질의를
+        # 해석하지 못하면 무엇을 계산할지 자체를 모른다.
+        logger.info("질의 해석 실패 path=%s 사유=%s", request.url.path, exc.reason)
+        return error_response(
+            422,
+            ErrorCode.QUERY_PARSE_FAILED,
+            "질문에서 금액을 찾지 못했습니다. 금액을 포함해 다시 입력해 주세요.",
         )
 
     @app.exception_handler(NoVerifiedRuleError)
