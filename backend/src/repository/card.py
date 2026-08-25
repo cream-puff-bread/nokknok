@@ -79,6 +79,18 @@ _EXCLUSION_SQL = text(
 ).bindparams(bindparam("card_ids", expanding=True))
 
 
+_ALL_CARD_IDS_SQL = text("SELECT id FROM card ORDER BY id")
+
+
+def get_all_cards(session: Session) -> list[Card]:
+    """카탈로그 전체. 신규 카드 제안(newCardSuggestion)이 보유하지 않은
+    카드까지 비교해야 해서 필요하다 — get_cards처럼 card_id를 미리 알아야
+    하는 함수로는 카탈로그를 조회할 수 없다.
+    """
+    ids = [row[0] for row in session.execute(_ALL_CARD_IDS_SQL).all()]
+    return get_cards(session, ids)
+
+
 def get_cards(session: Session, card_ids: list[int]) -> list[Card]:
     if not card_ids:
         return []

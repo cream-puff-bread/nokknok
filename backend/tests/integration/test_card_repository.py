@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.repository.card import get_cards, list_benefit_rules, list_exclusions
+from src.repository.card import get_all_cards, get_cards, list_benefit_rules, list_exclusions
 
 pytestmark = pytest.mark.integration
 
@@ -45,3 +45,10 @@ class TestCardRepository:
     def test_카드_C_규칙_개수는_시드와_일치한다(self, db_session):
         rules = [r for r in list_benefit_rules(db_session, [3]) if r.verified]
         assert len(rules) == 4  # ONLINE, DELIVERY, CAFE, ALL
+
+    def test_전체_카탈로그는_카드_3종을_포함한다(self, db_session):
+        # newCardSuggestion이 보유 여부와 무관하게 카탈로그 전체를 봐야
+        # 해서(engine/route.py) card_id를 몰라도 조회되는지 확인한다.
+        cards = get_all_cards(db_session)
+
+        assert {c.id for c in cards} >= set(DEMO_CARD_IDS)

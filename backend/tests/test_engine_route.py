@@ -18,7 +18,7 @@ import pytest
 
 from src.adapter.base import CardRef, PaymentType, Transaction
 from src.common.exceptions import NoVerifiedRuleError
-from src.engine.route import evaluate_route
+from src.engine.route import evaluate_route, suggest_new_card
 from src.repository.card import BenefitRule, Card, Exclusion
 
 AS_OF = date(2026, 8, 25)  # MONTH_START 카드의 실적 기간은 2026-07-01~07-31
@@ -214,3 +214,93 @@ class TestPerCardPerformance:
 
         assert result.best.perf_current == 0
         assert result.best.perf_achieved is False
+
+
+class TestNewCardSuggestion:
+    def test_보유하지_않은_카드_중_가장_이득이_큰_카드를_고른다(self):
+        cards = {
+            1: _card(1),
+            2: _card(2),
+            3: _card(3),
+        }
+        rules = {
+            2: [BenefitRule(1, 2, 0, None, "ONLINE", Decimal("0.05"), None, 9, True)],
+            3: [BenefitRule(2, 3, 0, None, "ONLINE", Decimal("0.15"), None, 9, True)],
+        }
+        suggestion = suggest_new_card(
+            owned_card_ids={1},
+            cards_by_id=cards,
+            rules_by_card=rules,
+            exclusions_by_card={2: [], 3: []},
+            amount=100_000,
+            category="ONLINE",
+        )
+
+        assert suggestion is not None
+        assert suggestion.card_name == "카드3"
+        assert suggestion.expected_gain == 15_000
+        assert suggestion.is_affiliate is False
+
+    def test_이득이_0원이면_제안하지_않는다(self):
+        cards = {1: _card(1), 2: _card(2)}
+        # 30만원 이상부터 적용되는 규칙 — perf=0으로 가정하면 매치되지 않는다.
+        rules = {2: [BenefitRule(1, 2, 300_000, None, "ONLINE", Decimal("0.10"), None, 9, True)]}
+
+        suggestion = suggest_new_card(
+            owned_card_ids={1},
+            cards_by_id=cards,
+            rules_by_card=rules,
+            exclusions_by_card={2: []},
+            amount=100_000,
+            category="ONLINE",
+        )
+
+        assert suggestion is None
+
+    def test_보유_카드로_조건을_채우면_신규_카드를_제안하지_않는다(self):
+        # 보유 카드(1)가 이미 실적을 채운 상태(perf_achieved=True)라면
+        # 카드 2가 아무리 유리해도 evaluate_route는 제안을 생략해야 한다.
+        card1 = _card(1)
+        card2 = _card(2)
+        rules = {
+            1: [BenefitRule(1, 1, 0, None, "ONLINE", Decimal("0.05"), None, 9, True)],
+            2: [BenefitRule(2, 2, 0, None, "ONLINE", Decimal("0.50"), None, 9, True)],
+        }
+
+        result = evaluate_route(
+            owned_cards=[_owned(1)],
+            cards_by_id={1: card1, 2: card2},
+            rules_by_card=rules,
+            exclusions_by_card={1: [], 2: []},
+            transactions=[],
+            amount=100_000,
+            category="ONLINE",
+            as_of=AS_OF,
+        )
+
+        assert result.best.perf_achieved is True
+        assert result.new_card_suggestion is None
+
+    def test_보유_카드로_조건을_못채우면_evaluate_route가_제안을_채운다(self):
+        card1 = _card(1)
+        card2 = _card(2)
+        rules = {
+            1: [BenefitRule(1, 1, 300_000, None, "ONLINE", Decimal("0.10"), None, 9, True)],
+            2: [BenefitRule(2, 2, 0, None, "ONLINE", Decimal("0.05"), None, 9, True)],
+        }
+
+        result = evaluate_route(
+            owned_cards=[_owned(1, "카드1")],
+            cards_by_id={1: card1, 2: card2},
+            rules_by_card=rules,
+            exclusions_by_card={1: [], 2: []},
+            transactions=[],  # 실적 0원 -> 카드1은 30만원 문턱을 못 채움
+            amount=100_000,
+            category="ONLINE",
+            as_of=AS_OF,
+        )
+
+        assert result.best.perf_achieved is False
+        assert result.new_card_suggestion is not None
+        assert result.new_card_suggestion.card_name == "카드2"
+        assert result.new_card_suggestion.expected_gain == 5_000
