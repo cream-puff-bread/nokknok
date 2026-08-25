@@ -9,6 +9,9 @@
 //   - 오류: 파일이 UTF-8로 디코딩되지 않음(예: 확장자만 바꾼 바이너리 파일).
 //     adapter/file_provider.py의 DataSourceError("파일 인코딩을 판별할 수
 //     없습니다")에 대응하는 상황이다.
+//
+//     ⚠ 이 목은 실제보다 엄격하다 — CP949 파일이 여기서는 오류로 뜨지만
+//     실제 엔드포인트에서는 정상 처리된다. 아래 TextDecoder 주석 참조.
 //   - 빈 상태: 헤더 뿐이거나 유효한 데이터 행이 하나도 없음.
 //     adapter/file_provider.py의 DataSourceError("읽을 수 있는 거래 내역이
 //     없습니다")에 대응한다.
@@ -43,6 +46,15 @@ export async function mockUploadTransactions(file: File): Promise<UploadOutcome>
   try {
     // fatal: true 로 둬야 잘못된 인코딩(예: 확장자만 바꾼 바이너리 파일)이
     // 조용히 대체 문자로 넘어가지 않고 실제로 오류로 드러난다.
+    //
+    // 목이 실제보다 엄격한 지점이 여기다: 실제 backend/src/adapter/
+    // file_provider.py._parse()는 UTF-8(BOM 포함)이 실패하면 CP949로 한 번
+    // 더 시도한다 — 국내 카드사 명세서가 CP949로 내려오는 경우가 많아서다.
+    // 이 목은 UTF-8만 시도하므로, 실제로는 정상 처리될 CP949 파일도 화면에는
+    // 오류로 뜬다. 업로드 엔드포인트를 실제로 붙이면 이 차이는 저절로
+    // 사라지므로, 그때 이 문단(과 위 파일 상단의 ⚠ 표시)도 함께 지운다 —
+    // 실제 호출로 바뀌면 인코딩 처리는 서버 책임이라 여기 남겨둘 이유가
+    // 없다.
     const buffer = await file.arrayBuffer();
     text = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
   } catch {
