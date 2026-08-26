@@ -23,6 +23,29 @@
 
 백엔드 주소가 바뀌면 `vercel.json` 의 `destination` 한 곳만 고친다.
 
+## 화면 주소를 새로고침해도 열리게 하는 것 (SPA 폴백)
+
+라우팅은 브라우저에서 react-router 가 처리하지만, `/personas` 같은 주소로 **직접
+들어오거나 새로고침하면 그 전에 서버가 먼저 응답해야 한다.** Vercel 은 그런 경로에
+해당하는 파일이 없으므로 404 를 낸다 — 라우터가 실행될 기회조차 없다.
+
+그래서 남은 경로를 전부 `index.html` 로 보낸다.
+
+```json
+"rewrites": [
+  { "source": "/api/:path*", "destination": "https://nokknok-api.onrender.com/api/:path*" },
+  { "source": "/(.*)",       "destination": "/index.html" }
+]
+```
+
+**순서가 중요하다.** `/api` 규칙이 먼저 와야 API 요청이 `index.html` 로 삼켜지지
+않는다. 정적 자산(`/assets/*.js`, `/favicon.ico`)은 Vercel 이 rewrites 보다
+파일시스템을 먼저 확인하므로 영향받지 않는다.
+
+이 설정이 없으면 **라우터를 도입한 이유가 통째로 사라진다.** 새로고침도, 딥링크도,
+뒤로가기 후 새로고침도 전부 404 가 된다. 콜드스타트가 30초 넘게 걸리는 동안
+심사위원이 새로고침하면 정확히 그 화면을 보게 된다.
+
 ## 빌드 감시 경로
 
 한쪽만 고쳐도 양쪽이 재배포되면 빌드 시간이 낭비되고 재배포 중 서비스가 잠시 끊긴다.
@@ -89,9 +112,21 @@ curl -s -o /dev/null -w "%{http_code}\n" https://<render>.onrender.com/docs
 # 4. 프론트에서 rewrite 가 도는가 (같은 오리진으로 나가야 한다)
 curl -s https://<vercel>.vercel.app/api/health
 # → {"status":"ok","time":"..."}
+
+# 5. 화면 주소를 직접 열어도 되는가 (SPA 폴백)
+curl -s -o /dev/null -w "%{http_code}
+" https://<vercel>.vercel.app/personas
+# → 200 (404 면 폴백 규칙이 빠진 것)
+
+# 6. 정적 자산이 폴백에 삼켜지지 않았는가
+curl -s -o /dev/null -w "%{http_code}
+" https://<vercel>.vercel.app/favicon.ico
 ```
 
 4번이 핵심이다. 1번이 되는데 4번이 안 되면 `vercel.json` 의 rewrite 주소가 틀린 것이다.
+
+5번은 라우팅을 도입한 뒤부터 의미가 생긴다. 여기서 404 가 나오면 새로고침과
+딥링크가 전부 깨지므로, 라우터를 넣기 전에 먼저 확인해야 한다.
 
 ## 콜드스타트
 
