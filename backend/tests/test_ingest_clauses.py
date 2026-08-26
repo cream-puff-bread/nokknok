@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -16,7 +17,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts"
 
 import ingest_clauses as ic  # noqa: E402
 
+from src.rag.loader import ExclusionConflict  # noqa: E402
 from src.rag.models import BenefitRule, Clause, ExtractionResult  # noqa: E402
+
+
+def _conflict(**overrides) -> ExclusionConflict:
+    fields = {
+        "detected_at": "2026-08-24T00:00:00+00:00",
+        "card_id": 1,
+        "target_kind": "CATEGORY",
+        "target_value": "TAX",
+        "existing_type": "PERFORMANCE",
+        "existing_verified": True,
+        "existing_clause": None,
+        "new_type": "BOTH",
+        "new_clause": {"doc_name": "a.pdf", "page_no": 1, "content": "새 근거"},
+    }
+    fields.update(overrides)
+    return ExclusionConflict(**fields)
 
 
 class TestClauseKey:
@@ -88,3 +106,36 @@ class TestPrintResult:
         ic._print_result(result)
         captured = capsys.readouterr()
         assert "무제한" not in captured.out
+
+
+class TestAppendConflicts:
+    """review_rules.py가 읽을 파일을 만드는 쪽이므로 형식이 깨지면 안 된다."""
+
+    def test_충돌이_없으면_파일을_만들지_않는다(self, tmp_path):
+        path = tmp_path / "conflicts.jsonl"
+        ic.append_conflicts(path, [])
+        assert not path.exists()
+
+    def test_충돌_한_줄이_유효한_JSON으로_append된다(self, tmp_path):
+        path = tmp_path / "conflicts.jsonl"
+        ic.append_conflicts(path, [_conflict()])
+
+        lines = path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 1
+        record = json.loads(lines[0])
+        assert record["card_id"] == 1
+        assert record["existing_type"] == "PERFORMANCE"
+        assert record["new_type"] == "BOTH"
+        assert record["new_clause"]["content"] == "새 근거"
+
+    def test_여러_번_호출하면_이어_append된다(self, tmp_path):
+        # 배치가 조항마다 append_conflicts를 부르므로, 실행이 끝날 때까지
+        # 이전 줄을 덮어쓰면 안 된다.
+        path = tmp_path / "conflicts.jsonl"
+        ic.append_conflicts(path, [_conflict(target_value="TAX")])
+        ic.append_conflicts(path, [_conflict(target_value="GIFT_CARD")])
+
+        lines = path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 2
+        assert json.loads(lines[0])["target_value"] == "TAX"
+        assert json.loads(lines[1])["target_value"] == "GIFT_CARD"

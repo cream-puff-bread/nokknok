@@ -1,6 +1,6 @@
 # 003. card_exclusion 중복 적재 방지
 
-상태: **미확정** — `contracts/schema.sql` 변경이라 전원 합의 필요
+상태: **확정** (2026-08-24)
 관련: `contracts/schema.sql`, `backend/src/rag/loader.py`, `data/cards.seed.sql`
 
 ## 문제
@@ -88,11 +88,37 @@ UNIQUE (card_id, target_kind, target_value)
 (`loader.py` 상단 주석 참조: "DB에 맡기면 IntegrityError 로 트랜잭션이 깨져 나머지
 조항이 날아간다").
 
-## 결정
+## 결정 (2026-08-24)
 
-미확정. 다음 두 가지를 함께 정해야 한다.
+좁은 범위로 확정한다.
 
-1. 제약 범위 — 네 컬럼 전체(`uq_exclusion_scope` 원안) vs `exclusion_type`을 뺀 좁은 범위.
-2. `RuleLoader`의 사전 검사 키를 결정된 제약과 동일하게 맞출지.
+```sql
+CONSTRAINT uq_exclusion_scope UNIQUE (card_id, target_kind, target_value)
+```
 
-결정 후 `contracts/schema.sql`과 `backend/src/rag/loader.py`를 같은 커밋에서 갱신한다.
+**근거**: 실제 발생한 문제(id=12)는 완전히 같은 행이 두 번 들어간 것이 아니라, 같은
+`(target_kind, target_value)`에 서로 다른 `exclusion_type`이 공존한 것이었다. 세금이
+`PERFORMANCE` 제외이면서 동시에 `BOTH` 제외일 수는 없다 — 네 컬럼 전체를 키로 잡는
+원안(`uq_exclusion_scope` 최초안, `exclusion_type` 포함)은 `exclusion_type`이 다르면
+통과시키므로 이 사례를 막지 못한다.
+
+"같은 `target_value`가 카드 안에서 서로 다른 `exclusion_type`을 정말로 가져야 하는"
+합법적 케이스가 있는지 확인이 필요했는데, 제약 추가 전 실제 DB(`card_exclusion`,
+11행)와 시드 데이터(카드 1·2·3)를 좁은 키 기준으로 전수 조회한 결과 위반 사례가
+없었다. id=12는 이미 2026-08-20에 수동 삭제되어 있었다.
+
+`RuleLoader._seen_exclusions`의 사전 검사 키도 동일하게 `(target_kind, target_value)`로
+좁혔다 — `exclusion_type`을 키에서 제거하지 않으면 DB 제약과 사전 검사가 어긋나
+사전 검사를 통과한 행이 배치 도중 `IntegrityError`로 트랜잭션을 깨뜨린다.
+같은 대상에 다른 `exclusion_type`이 들어오면 사전 검사 단계에서 경고 로그를 남기고
+건너뛴다 — id=12 같은 분류 불일치를 조용히 묻지 않고 드러내기 위해서다.
+
+`contracts/schema.sql`(CREATE TABLE 내부 CONSTRAINT)과 `backend/src/rag/loader.py`를
+같은 커밋에서 갱신했다. 이미 배포된 DB에는 별도 `ALTER TABLE`을 적용해야 한다 —
+아래 참조.
+
+```sql
+ALTER TABLE card_exclusion
+    ADD CONSTRAINT uq_exclusion_scope
+    UNIQUE (card_id, target_kind, target_value);
+```

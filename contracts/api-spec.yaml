@@ -86,6 +86,11 @@ paths:
                 personaId: { type: integer }
                 query:
                   type: string
+                  minLength: 1
+                  maxLength: 200
+                  description: |
+                    자연어 질의. 화면 입력란도 같은 길이로 제한한다 —
+                    긴 문장은 LLM 런타임 예산을 넘기기 쉽고 비용도 는다.
                   example: 아이폰 180만원 할부로 사도 될까
       responses:
         '200':

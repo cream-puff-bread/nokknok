@@ -63,6 +63,19 @@ class LlmBudgetExceededError(LlmError):
     """
 
 
+class QueryParseError(LlmError):
+    """자연어 질의에서 계산에 필요한 값을 얻지 못했다.
+
+    설명 생성 실패와 성격이 다르다. 설명은 없어도 계산 결과를 낼 수 있어
+    explanation=null 로 넘어가지만, 질의 파싱이 실패하면 무엇을 계산할지
+    자체를 모르므로 계산을 시작할 수 없다. 호출부는 422 로 응답한다.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"질의 해석 실패: {reason}")
+        self.reason = reason
+
+
 # ─────────────────────────────────────────────
 # 최적화 엔진
 # ─────────────────────────────────────────────

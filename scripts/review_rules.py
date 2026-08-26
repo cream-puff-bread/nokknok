@@ -17,6 +17,7 @@ verified를 이 스크립트가 직접 바꾸지는 않는다. 검수는 사람�
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Mapping
 from datetime import datetime
@@ -34,6 +35,12 @@ from src.common.logging import get_logger, setup_logging  # noqa: E402
 logger = get_logger("review_rules")
 
 OUTPUT_DIR = Path("data/generated")
+
+# ingest_clauses.py가 남기는 제외 규칙 충돌 이력. uq_exclusion_scope 제약
+# 때문에 충돌한 신규 값은 card_exclusion에 남지 않아, 아래 verified=false
+# 조회만으로는 이 사례가 리포트에 보이지 않는다. 파일이 있으면 읽어 반영하고,
+# 없으면(아직 충돌이 없었거나 다른 환경) 조용히 건너뛴다.
+CONFLICT_LOG_FILE = OUTPUT_DIR / "ingest_exclusion_conflicts.jsonl"
 
 # clause_id가 NULL이거나 clause_source에서 지워진 행도 검수자가 봐야 하므로
 # INNER JOIN이 아니라 LEFT JOIN을 쓴다. INNER JOIN을 쓰면 근거가 없는 규칙이
@@ -86,6 +93,35 @@ def fetch_pending(
     return list(benefit_rows), list(exclusion_rows)
 
 
+def load_conflicts(card_id: int | None) -> list[dict[str, Any]]:
+    """ingest_clauses.py가 남긴 제외 규칙 충돌 이력을 읽는다.
+
+    한 줄이 깨져 있어도 나머지 이력을 못 보게 되면 안 되므로, 손상된 줄은
+    경고만 남기고 건너뛴다.
+    """
+    if not CONFLICT_LOG_FILE.exists():
+        return []
+
+    records: list[dict[str, Any]] = []
+    for line_no, line in enumerate(
+        CONFLICT_LOG_FILE.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            logger.warning(
+                "%s %d번째 줄을 읽을 수 없어 건너뜁니다", CONFLICT_LOG_FILE.name, line_no
+            )
+            continue
+        if card_id is not None and record.get("card_id") != card_id:
+            continue
+        records.append(record)
+    return records
+
+
 # ---------- 마크다운 조립 ----------
 def _clause_block(row: Mapping[str, Any]) -> list[str]:
     if row["content"] is None:
@@ -134,18 +170,52 @@ def format_exclusion_row(row: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _conflict_clause_block(clause: dict[str, Any] | None, label: str) -> list[str]:
+    if clause is None:
+        return [f"- {label}: ⚠ **근거 조항 없음**"]
+    content = str(clause["content"]).replace("\n", "\n> ")
+    return [
+        f"- {label}: {clause['doc_name']} p.{clause['page_no']}",
+        "",
+        f"> {content}",
+    ]
+
+
+def format_conflict_entry(record: Mapping[str, Any]) -> str:
+    """제외 규칙 충돌 하나를 사람이 판단할 수 있는 형태로 조립한다.
+
+    양쪽 근거 조항을 나란히 보여준다 — 어느 exclusion_type이 맞는지는
+    코드가 아니라 조항 원문을 읽은 사람만 판단할 수 있다.
+    """
+    lines = [
+        f"#### {record['target_kind']} / {record['target_value']} — "
+        f"기존 {record['existing_type']} vs 신규 {record['new_type']} (버려짐)",
+        "",
+        f"- 발견 시각: {record['detected_at']}",
+        f"- 기존 값: **{record['existing_type']}** "
+        f"(verified={record['existing_verified']})",
+        *_conflict_clause_block(record.get("existing_clause"), "기존 근거"),
+        "",
+        f"- 신규 값: **{record['new_type']}** (uq_exclusion_scope에 걸려 DB에 저장되지 않음)",
+        *_conflict_clause_block(record.get("new_clause"), "신규 근거"),
+    ]
+    return "\n".join(lines)
+
+
 def build_markdown(
     benefit_rows: list[Mapping[str, Any]],
     exclusion_rows: list[Mapping[str, Any]],
     *,
     card_id: int | None,
+    conflicts: list[dict[str, Any]],
 ) -> str:
     scope = f"card_id={card_id}" if card_id is not None else "전체 카드"
     lines = [
         f"# 검수 리포트 — {scope}",
         "",
         f"생성 시각: {datetime.now().isoformat(timespec='seconds')}",
-        f"대기 건수: 혜택규칙 {len(benefit_rows)}건, 제외규칙 {len(exclusion_rows)}건",
+        f"대기 건수: 혜택규칙 {len(benefit_rows)}건, 제외규칙 {len(exclusion_rows)}건, "
+        f"제외규칙 충돌 {len(conflicts)}건",
         "",
     ]
 
@@ -153,17 +223,26 @@ def build_markdown(
         {(r["card_id"], r["issuer"], r["card_name"]) for r in benefit_rows}
         | {(r["card_id"], r["issuer"], r["card_name"]) for r in exclusion_rows}
     )
+    # 충돌만 있고 검수 대기 규칙은 없는 카드(예: 나머지가 이미 검수 완료된
+    # 경우)도 있을 수 있다. 그런 카드는 issuer/card_name을 조회하지 않고도
+    # 충돌 이력이 리포트에서 빠지지 않도록 card_id만으로 자리를 만든다.
+    known_ids = {c[0] for c in cards}
+    for cid in sorted({c["card_id"] for c in conflicts} - known_ids):
+        cards.append((cid, "", f"(card_id={cid}, 검수 대기 규칙 없음)"))
+    cards.sort()
 
     if not cards:
         lines.append("검수 대기 규칙이 없습니다.")
         return "\n".join(lines) + "\n"
 
     for cid, issuer, card_name in cards:
-        lines.append(f"## {issuer} {card_name} (card_id={cid})")
+        header = f"{issuer} {card_name}".strip()
+        lines.append(f"## {header} (card_id={cid})")
         lines.append("")
 
         card_benefit = [r for r in benefit_rows if r["card_id"] == cid]
         card_exclusion = [r for r in exclusion_rows if r["card_id"] == cid]
+        card_conflicts = [c for c in conflicts if c["card_id"] == cid]
 
         if card_benefit:
             lines.append("### 혜택 규칙")
@@ -179,12 +258,27 @@ def build_markdown(
                 lines.append(format_exclusion_row(row))
                 lines.append("")
 
+        if card_conflicts:
+            lines.append("### ⚠ 제외 규칙 충돌 이력")
+            lines.append("")
+            lines.append(
+                "같은 대상에 서로 다른 exclusion_type이 나온 사례다. "
+                "uq_exclusion_scope 제약으로 신규 값은 DB에 저장되지 않고 버려졌다. "
+                "기존 값이 맞는지 아래 두 근거를 대조해 판단한다(docs/decisions/003)."
+            )
+            lines.append("")
+            for record in card_conflicts:
+                lines.append(format_conflict_entry(record))
+                lines.append("")
+
     return "\n".join(lines) + "\n"
 
 
 # ---------- 콘솔 요약 ----------
 def print_summary(
-    benefit_rows: list[Mapping[str, Any]], exclusion_rows: list[Mapping[str, Any]]
+    benefit_rows: list[Mapping[str, Any]],
+    exclusion_rows: list[Mapping[str, Any]],
+    conflicts: list[dict[str, Any]],
 ) -> None:
     def _label(row: Mapping[str, Any]) -> tuple[int, str]:
         return row["card_id"], f"{row['issuer']} {row['card_name']}"
@@ -201,20 +295,29 @@ def print_summary(
 
     keys = sorted(set(benefit_counts) | set(exclusion_counts))
     if not keys:
-        print("검수 대기 규칙이 없습니다.")
-        return
+        if conflicts:
+            print("검수 대기 규칙은 없지만 제외 규칙 충돌 이력이 있습니다.")
+        else:
+            print("검수 대기 규칙이 없습니다.")
+    else:
+        print(f"\n{'카드':<28} {'혜택규칙':>8} {'제외규칙':>8} {'합계':>6}")
+        print("-" * 54)
+        total_b = total_e = 0
+        for card_id, label in keys:
+            b = benefit_counts.get((card_id, label), 0)
+            e = exclusion_counts.get((card_id, label), 0)
+            total_b += b
+            total_e += e
+            print(f"{label:<28} {b:>8} {e:>8} {b + e:>6}")
+        print("-" * 54)
+        print(f"{'합계':<28} {total_b:>8} {total_e:>8} {total_b + total_e:>6}")
 
-    print(f"\n{'카드':<28} {'혜택규칙':>8} {'제외규칙':>8} {'합계':>6}")
-    print("-" * 54)
-    total_b = total_e = 0
-    for card_id, label in keys:
-        b = benefit_counts.get((card_id, label), 0)
-        e = exclusion_counts.get((card_id, label), 0)
-        total_b += b
-        total_e += e
-        print(f"{label:<28} {b:>8} {e:>8} {b + e:>6}")
-    print("-" * 54)
-    print(f"{'합계':<28} {total_b:>8} {total_e:>8} {total_b + total_e:>6}")
+    if conflicts:
+        print(
+            f"\n⚠ 제외 규칙 충돌 {len(conflicts)}건 — "
+            "uq_exclusion_scope에 걸려 DB에는 없지만 사람 검수가 필요합니다. "
+            "마크다운 리포트의 '충돌 이력' 섹션을 확인하세요."
+        )
 
 
 def main() -> int:
@@ -234,16 +337,21 @@ def main() -> int:
         # 남겨두면 API 서버가 붙을 자리를 잠식한다.
         dispose_engine()
 
-    print_summary(benefit_rows, exclusion_rows)
+    # DB 조회와 무관한 파일 읽기라 세션 블록 밖에서 해도 된다.
+    conflicts = load_conflicts(args.card_id)
 
-    if not benefit_rows and not exclusion_rows:
+    print_summary(benefit_rows, exclusion_rows, conflicts)
+
+    if not benefit_rows and not exclusion_rows and not conflicts:
         logger.info("검수 대기 규칙이 없어 리포트를 만들지 않습니다.")
         return 0
 
     label = str(args.card_id) if args.card_id is not None else "all"
     output_path = OUTPUT_DIR / f"review_{label}.md"
 
-    markdown = build_markdown(benefit_rows, exclusion_rows, card_id=args.card_id)
+    markdown = build_markdown(
+        benefit_rows, exclusion_rows, card_id=args.card_id, conflicts=conflicts
+    )
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     output_path.write_text(markdown, encoding="utf-8")
 

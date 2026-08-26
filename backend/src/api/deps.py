@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Annotated
 
+from fastapi import Depends
 from sqlalchemy.orm import Session
 
+from src.api.query_parser import QueryParser, build_query_parser
 from src.common.db import session_scope
+from src.repository import category as category_repo
 
 
 def get_db_session() -> Iterator[Session]:
@@ -18,3 +22,22 @@ def get_db_session() -> Iterator[Session]:
     """
     with session_scope() as session:
         yield session
+
+
+SessionDep = Annotated[Session, Depends(get_db_session)]
+
+
+def get_query_parser(session: SessionDep) -> QueryParser:
+    """질의 해석기를 의존성으로 만든다.
+
+    라우터 안에서 직접 생성하면 테스트가 LLM 을 호출하지 않고는 엔드포인트를
+    검증할 수 없다. 의존성으로 빼면 오버라이드로 갈아끼울 수 있다.
+
+    카테고리 enum 은 spend_category 마스터에서 읽는다. 코드에 목록을 다시
+    적으면 카테고리를 추가할 때 한쪽을 빠뜨린다.
+
+    와일드카드(ALL)를 뺀 목록을 넘긴다. ALL 은 규칙 매칭용 폴백 코드라
+    결제 카테고리가 될 수 없는데, 그대로 enum 에 넣으면 "이것저것 샀어"
+    같은 애매한 질의에서 모델이 ALL 을 고를 수 있다.
+    """
+    return build_query_parser(category_repo.list_purchase_category_codes(session))
