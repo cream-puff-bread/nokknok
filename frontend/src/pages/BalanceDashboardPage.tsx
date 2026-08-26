@@ -5,7 +5,6 @@ import { ApiRequestError } from '../api/client';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { Skeleton } from '../components/Skeleton';
-import { SlowLoadingNotice, useSlowLoading } from '../components/SlowLoadingNotice';
 import {
   EXPENSE_TYPE_LABEL,
   formatWon,
@@ -24,7 +23,6 @@ interface BalanceDashboardPageProps {
 
 export function BalanceDashboardPage({ personaId }: BalanceDashboardPageProps) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
-  const slow = useSlowLoading(state.status === 'loading');
 
   const load = useCallback(() => {
     setState({ status: 'loading' });
@@ -48,7 +46,6 @@ export function BalanceDashboardPage({ personaId }: BalanceDashboardPageProps) {
       <section className="space-y-4">
         <Skeleton className="h-32 w-full rounded-xl" />
         <Skeleton className="h-40 w-full rounded-xl" />
-        {slow && <SlowLoadingNotice />}
       </section>
     );
   }

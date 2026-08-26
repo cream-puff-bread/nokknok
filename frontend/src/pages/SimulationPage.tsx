@@ -5,7 +5,6 @@ import { MAX_QUERY_LENGTH, runSimulation } from '../api/simulate';
 import { BalanceTrendChart } from '../components/BalanceTrendChart';
 import { Button } from '../components/Button';
 import { Skeleton } from '../components/Skeleton';
-import { SlowLoadingNotice, useSlowLoading } from '../components/SlowLoadingNotice';
 import {
   formatWon,
   PAYMENT_TYPE_LABEL,
@@ -26,7 +25,6 @@ interface SimulationPageProps {
 export function SimulationPage({ personaId }: SimulationPageProps) {
   const [query, setQuery] = useState('');
   const [state, setState] = useState<RunState>({ status: 'idle' });
-  const slow = useSlowLoading(state.status === 'running');
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -86,8 +84,7 @@ export function SimulationPage({ personaId }: SimulationPageProps) {
           <p className="text-xs text-gray-500">
             질문을 해석하고 6개월치를 계산하는 중입니다.
           </p>
-          {slow && <SlowLoadingNotice />}
-        </div>
+          </div>
       )}
 
       {state.status === 'error' && (
