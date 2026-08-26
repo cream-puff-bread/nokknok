@@ -1,0 +1,68 @@
+name: ci
+
+# PR 마다 같은 명령을 같은 환경에서 돌려 결과를 하나로 고정한다.
+#
+# 최근 며칠 동안 테스트 개수가 세 번 어긋났고 전부 환경 차이였다 —
+# 리베이스한 로컬 vs 푸시된 구버전, .env 의 LLM 키 유무, DATABASE_URL 유무.
+# 매번 사람이 손으로 재현해 원인을 찾았다. CI 가 그 숫자를 고정하면
+# PR 본문과 리뷰어의 수치가 다툴 일이 없어진다.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# 같은 PR 에 새 커밋이 오면 이전 실행은 의미가 없다. 무료 러너 시간을 아낀다.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - run: pip install -r requirements.txt
+
+      # 통합 테스트는 실제 DB에 붙는다. conftest 가 트랜잭션을 열고 무조건
+      # 롤백하므로 시드 데이터는 건드리지 않는다. 시크릿이 없으면 통합
+      # 테스트만 자동으로 skip 되고 단위 테스트는 그대로 돈다.
+      - name: pytest
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # .nvmrc 를 단일 출처로 삼는다. 여기 버전을 다시 적으면
+          # 로컬과 CI 가 조용히 갈라진다.
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # npm ci 는 lockfile 을 그대로 설치한다. engine-strict=true 라
+      # Node 버전이 맞지 않으면 여기서 바로 실패한다.
+      - run: npm ci
+
+      # typecheck 와 build 는 각각 pre 훅에서 contracts/types.ts 를
+      # 복사한다. 계약이 바뀌면 사본도 함께 갱신된 상태로 검사된다.
+      - run: npm run typecheck
+      - run: npm run build
