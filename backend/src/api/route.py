@@ -69,7 +69,12 @@ def route_payment(session: SessionDep, body: RouteRequest) -> RouteResponse:
     if body.amount <= 0:
         raise InvalidAmountError(body.amount)
 
-    valid_categories = set(category_repo.list_category_codes(session))
+    # list_category_codes()는 ALL(규칙 매칭용 와일드카드)까지 포함한다.
+    # 결제 요청의 category는 실제 소비 카테고리여야 하므로 ALL을 뺀
+    # list_purchase_category_codes()로 검증한다 — 안 그러면 category=ALL이
+    # 그대로 엔진에 들어가 "카테고리 전용 규칙이 ALL보다 우선한다"는
+    # 우선순위 규칙 자체가 의미를 잃는다(repository/category.py 참조).
+    valid_categories = set(category_repo.list_purchase_category_codes(session))
     if body.category not in valid_categories:
         raise InvalidCategoryError(body.category)
 
