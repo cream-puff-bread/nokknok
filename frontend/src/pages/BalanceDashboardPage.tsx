@@ -1,39 +1,51 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { fetchBalance } from '../api/balance';
-import { ApiRequestError } from '../api/client';
+import {
+  ApiRequestError,
+  SLOW_REQUEST_MESSAGE,
+  type SlowRequestPhase,
+} from '../api/client';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
+import { PersonaNotFoundAction } from '../components/PersonaNotFoundAction';
 import { Skeleton } from '../components/Skeleton';
 import {
   EXPENSE_TYPE_LABEL,
   formatWon,
+  type ApiErrorCode,
   type BalanceResponse,
   type FixedExpense,
 } from '../types/contract';
 
 type LoadState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | { status: 'error'; message: string; code?: ApiErrorCode }
   | { status: 'loaded'; balance: BalanceResponse };
 
 interface BalanceDashboardPageProps {
   personaId: number;
+  onNavigateToPersonas?: () => void;
 }
 
-export function BalanceDashboardPage({ personaId }: BalanceDashboardPageProps) {
+export function BalanceDashboardPage({
+  personaId,
+  onNavigateToPersonas,
+}: BalanceDashboardPageProps) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
+  const [slowPhase, setSlowPhase] = useState<SlowRequestPhase | null>(null);
 
   const load = useCallback(() => {
     setState({ status: 'loading' });
-    fetchBalance(personaId)
+    setSlowPhase(null);
+    fetchBalance(personaId, { onSlowRequest: setSlowPhase })
       .then((balance) => setState({ status: 'loaded', balance }))
       .catch((err: unknown) => {
-        const message =
-          err instanceof ApiRequestError
-            ? err.message
-            : '가용잔고를 불러오지 못했습니다.';
-        setState({ status: 'error', message });
+        if (err instanceof ApiRequestError) {
+          setState({ status: 'error', message: err.message, code: err.code });
+          return;
+        }
+        setState({ status: 'error', message: '가용잔고를 불러오지 못했습니다.' });
       });
   }, [personaId]);
 
@@ -46,12 +58,24 @@ export function BalanceDashboardPage({ personaId }: BalanceDashboardPageProps) {
       <section className="space-y-4">
         <Skeleton className="h-32 w-full rounded-xl" />
         <Skeleton className="h-40 w-full rounded-xl" />
+        {slowPhase && (
+          <p className="text-xs text-gray-500">{SLOW_REQUEST_MESSAGE[slowPhase]}</p>
+        )}
       </section>
     );
   }
 
   if (state.status === 'error') {
-    return <ErrorState message={state.message} onRetry={load} />;
+    // 없는 페르소나는 재시도해도 영원히 없다. 이용자가 취해야 할 다음 행동이
+    // 다르므로 화면도 달라야 한다(#20 에서 세운 원칙).
+    return state.code === 'PERSONA_NOT_FOUND' ? (
+      <ErrorState
+        message={state.message}
+        action={<PersonaNotFoundAction onNavigateToPersonas={onNavigateToPersonas} />}
+      />
+    ) : (
+      <ErrorState message={state.message} onRetry={load} />
+    );
   }
 
   const { accountBalance, fixedTotal, availableBalance, fixedExpenses } = state.balance;

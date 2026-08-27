@@ -1,46 +1,67 @@
-import { useState, type FormEvent } from 'react';
+import { useCallback, useState, type FormEvent } from 'react';
 
-import { ApiRequestError } from '../api/client';
+import {
+  ApiRequestError,
+  SLOW_REQUEST_MESSAGE,
+  type SlowRequestPhase,
+} from '../api/client';
 import { MAX_QUERY_LENGTH, runSimulation } from '../api/simulate';
 import { BalanceTrendChart } from '../components/BalanceTrendChart';
 import { Button } from '../components/Button';
+import { ErrorState } from '../components/ErrorState';
+import { PersonaNotFoundAction } from '../components/PersonaNotFoundAction';
 import { Skeleton } from '../components/Skeleton';
 import {
   formatWon,
   PAYMENT_TYPE_LABEL,
+  type ApiErrorCode,
   SCENARIO_LABEL,
+  type DeadPoint,
+  type Scenario,
   type SimulationResponse,
 } from '../types/contract';
 
 type RunState =
   | { status: 'idle' }
   | { status: 'running' }
-  | { status: 'error'; message: string }
+  | { status: 'error'; message: string; code?: ApiErrorCode }
   | { status: 'done'; result: SimulationResponse };
 
 interface SimulationPageProps {
   personaId: number;
+  onNavigateToPersonas?: () => void;
 }
 
-export function SimulationPage({ personaId }: SimulationPageProps) {
+export function SimulationPage({
+  personaId,
+  onNavigateToPersonas,
+}: SimulationPageProps) {
   const [query, setQuery] = useState('');
   const [state, setState] = useState<RunState>({ status: 'idle' });
+  const [slowPhase, setSlowPhase] = useState<SlowRequestPhase | null>(null);
+
+  const run = useCallback(
+    (trimmed: string) => {
+      setState({ status: 'running' });
+      setSlowPhase(null);
+      runSimulation(personaId, trimmed, { onSlowRequest: setSlowPhase })
+        .then((result) => setState({ status: 'done', result }))
+        .catch((err: unknown) => {
+          if (err instanceof ApiRequestError) {
+            setState({ status: 'error', message: err.message, code: err.code });
+            return;
+          }
+          setState({ status: 'error', message: '시뮬레이션을 실행하지 못했습니다.' });
+        });
+    },
+    [personaId],
+  );
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const trimmed = query.trim();
     if (trimmed.length === 0) return;
-
-    setState({ status: 'running' });
-    runSimulation(personaId, trimmed)
-      .then((result) => setState({ status: 'done', result }))
-      .catch((err: unknown) => {
-        const message =
-          err instanceof ApiRequestError
-            ? err.message
-            : '시뮬레이션을 실행하지 못했습니다.';
-        setState({ status: 'error', message });
-      });
+    run(trimmed);
   };
 
   const running = state.status === 'running';
@@ -84,17 +105,64 @@ export function SimulationPage({ personaId }: SimulationPageProps) {
           <p className="text-xs text-gray-500">
             질문을 해석하고 6개월치를 계산하는 중입니다.
           </p>
-          </div>
-      )}
-
-      {state.status === 'error' && (
-        <div className="bg-red-50 rounded-xl border border-red-200 p-6">
-          <p className="text-sm text-red-600">{state.message}</p>
+          {slowPhase && (
+            <p className="text-xs text-gray-500">{SLOW_REQUEST_MESSAGE[slowPhase]}</p>
+          )}
         </div>
       )}
 
+      {state.status === 'error' &&
+        (state.code === 'PERSONA_NOT_FOUND' ? (
+          <ErrorState
+            message={state.message}
+            action={<PersonaNotFoundAction onNavigateToPersonas={onNavigateToPersonas} />}
+          />
+        ) : (
+          // 재시도는 마지막 질의를 그대로 다시 보낸다. 입력창을 다시 누르게
+          // 하면 콜드스타트로 실패했을 때 이용자가 같은 문장을 또 타이핑해야 한다.
+          <ErrorState message={state.message} onRetry={() => run(query.trim())} />
+        ))}
+
       {state.status === 'done' && <SimulationResult result={state.result} />}
     </section>
+  );
+}
+
+/**
+ * 적자 전환 안내.
+ *
+ * 계약상 deadPoint 는 하나뿐이라 가장 이른 시점 하나만 온다. 그 문구를 그대로
+ * "빠듯 시나리오에서 …" 로 쓰면, 세 시나리오가 모두 음수인 상황에서도 "빠듯하게
+ * 쓸 때만 문제" 로 읽힌다. 실제로 페르소나 2 에 180만원 일시불을 넣으면 여유
+ * 시나리오까지 -838,052원이다. 위험을 축소해 전달하는 셈이라, 이 서비스가 막으려는
+ * 오판을 화면이 거꾸로 유도하게 된다.
+ *
+ * 값을 새로 계산하지 않는다. 백엔드가 준 balance 의 부호를 세기만 한다.
+ */
+function DeadPointNotice({
+  deadPoint,
+  scenarios,
+}: {
+  deadPoint: DeadPoint;
+  scenarios: Scenario[];
+}) {
+  const negatives = scenarios.filter((s) =>
+    s.points.some((p) => p.month === deadPoint.month && p.balance < 0),
+  ).length;
+  const allNegative = negatives === scenarios.length;
+
+  return (
+    <div className="bg-red-50 rounded-xl border border-red-200 p-6">
+      <p className="text-sm text-red-600">
+        <span className="font-semibold">
+          {allNegative
+            ? `어떤 경우에도 ${deadPoint.month} 잔고가 마이너스로 전환됩니다.`
+            : `${SCENARIO_LABEL[deadPoint.level]} 시나리오에서 ${deadPoint.month} 잔고가 마이너스로 전환됩니다.`}
+        </span>{' '}
+        <span className="tabular-nums">{formatWon(deadPoint.shortage)}</span>
+        {allNegative ? ' 이상 부족합니다.' : ' 부족합니다.'}
+      </p>
+    </div>
   );
 }
 
@@ -117,15 +185,7 @@ function SimulationResult({ result }: { result: SimulationResponse }) {
       </div>
 
       {deadPoint !== null ? (
-        <div className="bg-red-50 rounded-xl border border-red-200 p-6">
-          <p className="text-sm text-red-600">
-            <span className="font-semibold">
-              {SCENARIO_LABEL[deadPoint.level]} 시나리오에서 {deadPoint.month} 잔고가
-              마이너스로 전환됩니다.
-            </span>{' '}
-            <span className="tabular-nums">{formatWon(deadPoint.shortage)}</span> 부족합니다.
-          </p>
-        </div>
+        <DeadPointNotice deadPoint={deadPoint} scenarios={scenarios} />
       ) : (
         <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-6">
           <p className="text-sm text-emerald-600">
