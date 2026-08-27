@@ -151,15 +151,20 @@ PR 마다 `.github/workflows/ci.yml` 이 백엔드 테스트와 프론트 빌드
 손으로 재현해 원인을 찾았다.
 
 통합 테스트는 저장소 시크릿 `DATABASE_URL` 로 실제 DB에 붙는다. `conftest` 가
-트랜잭션을 열고 무조건 롤백하므로 시드 데이터는 건드리지 않는다. **시크릿이
-없으면 통합 테스트만 자동으로 skip 되고 단위 테스트는 그대로 돈다** — 즉 시크릿을
-빠뜨려도 CI 가 초록불로 뜨므로, 통합 테스트가 실제로 돌았는지는 skip 수로
-확인한다.
+트랜잭션을 열고 무조건 롤백하므로 시드 데이터는 건드리지 않는다.
 
 ```
-DATABASE_URL 있음  →  205 passed
-DATABASE_URL 없음  →  162 passed, 43 skipped
+DATABASE_URL 있음  →  205 passed          (skip 이 있으면 CI 실패)
+DATABASE_URL 없음  →  162 passed, 43 skipped  (job summary 에 경고)
 ```
+
+**이 대조를 워크플로가 직접 강제한다.** 시크릿이 없으면 통합 테스트가 자동으로
+skip 되고 exit code 는 0 이라 그냥 두면 초록불로 뜬다 — 그러면 "통합 테스트가
+돌고 있다" 고 착각하게 된다. 그래서 시크릿이 있을 때 skip 이 하나라도 있으면
+실패시키고, 없을 때는 job summary 에 경고를 남긴다.
+
+문서에만 적어두면 사람이 안 보면 그만이다. keep-alive 의 `|| echo` 가 URL 이
+틀려도 성공으로 뜨던 것과 같은 유형이라, 규칙은 실행되는 자리에 둔다.
 
 Node 버전은 `frontend/.nvmrc` 를 단일 출처로 삼는다. 워크플로에 버전을 다시 적으면
 로컬과 CI 가 조용히 갈라진다.

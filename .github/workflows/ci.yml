@@ -35,12 +35,38 @@ jobs:
       - run: pip install -r requirements.txt
 
       # 통합 테스트는 실제 DB에 붙는다. conftest 가 트랜잭션을 열고 무조건
-      # 롤백하므로 시드 데이터는 건드리지 않는다. 시크릿이 없으면 통합
-      # 테스트만 자동으로 skip 되고 단위 테스트는 그대로 돈다.
+      # 롤백하므로 시드 데이터는 건드리지 않는다.
+      #
+      # 시크릿이 없으면 통합 테스트만 자동으로 skip 되고 exit code 는 0 이라
+      # CI 가 초록불로 뜬다. 편의를 위한 동작이지만 그대로 두면 "통합 테스트가
+      # 돌고 있다"고 착각하게 된다 — keep-alive 의 `|| echo` 나 CONTRIBUTING.md
+      # 의 대조 기준처럼, 사람이 챙겨야만 지켜지는 규칙은 결국 안 지켜진다.
+      # 그래서 두 경우를 워크플로가 직접 구분한다.
       - name: pytest
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: pytest -q
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::warning::DATABASE_URL 시크릿이 없어 통합 테스트가 skip됩니다. 단위 테스트만 검증됩니다."
+            {
+              echo "### ⚠️ 통합 테스트 skip"
+              echo ""
+              echo "\`DATABASE_URL\` 시크릿이 등록되지 않아 단위 테스트만 실행했습니다."
+              echo "통합 테스트를 켜려면 저장소 시크릿에 \`nokknok_ci\` 롤 접속 문자열을 넣으세요."
+            } >> "$GITHUB_STEP_SUMMARY"
+            pytest -q
+            exit $?
+          fi
+
+          # 시크릿이 있으면 통합 테스트가 반드시 실제로 돌아야 한다.
+          # skip 이 하나라도 있으면 DB 연결이 실패해 조용히 건너뛴 것이므로 실패시킨다.
+          set -o pipefail
+          pytest -q | tee pytest-output.txt
+          if grep -qE '[0-9]+ skipped' pytest-output.txt; then
+            echo "::error::DATABASE_URL 이 설정됐는데 skip 된 테스트가 있습니다. DB 연결에 실패했거나 권한이 부족합니다."
+            grep -E 'passed|skipped|failed' pytest-output.txt >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
   frontend:
     runs-on: ubuntu-latest
