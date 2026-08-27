@@ -4,6 +4,7 @@ import { ApiRequestError, SLOW_REQUEST_MESSAGE, type SlowRequestPhase } from '..
 import { fetchPersonas } from '../api/personas';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
+import { PersonaNotFoundAction } from '../components/PersonaNotFoundAction';
 import { Skeleton } from '../components/Skeleton';
 import { formatWon, type ApiErrorCode, type Persona } from '../types/contract';
 
@@ -19,9 +20,15 @@ interface PersonaSelectPageProps {
    * 라우팅을 모른다 — 선택된 Persona만 위로 알린다.
    */
   onSelect?: (persona: Persona) => void;
+  /**
+   * PERSONA_NOT_FOUND 시 "페르소나 선택으로" 버튼을 눌렀을 때 호출된다.
+   * 이 컴포넌트는 라우팅을 모르므로(위 onSelect와 같은 이유) routes.tsx의
+   * 래퍼가 useNavigate로 채워준다. PersonaNotFoundAction 참고.
+   */
+  onNavigateToPersonas?: () => void;
 }
 
-export function PersonaSelectPage({ onSelect }: PersonaSelectPageProps) {
+export function PersonaSelectPage({ onSelect, onNavigateToPersonas }: PersonaSelectPageProps) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [selectedId, setSelectedId] = useState<number | null>(null);
   // 콜드스타트 안내 문구. client.ts가 5초·15초 문턱에서 onSlowRequest로
@@ -71,14 +78,7 @@ export function PersonaSelectPage({ onSelect }: PersonaSelectPageProps) {
         state.code === 'PERSONA_NOT_FOUND' ? (
           <ErrorState
             message={state.message}
-            action={
-              <a
-                href="/personas"
-                className="bg-white hover:bg-gray-50 border border-gray-300 rounded-lg px-4 py-2 text-gray-700 text-sm font-medium transition-colors inline-block"
-              >
-                페르소나 선택으로
-              </a>
-            }
+            action={<PersonaNotFoundAction onNavigateToPersonas={onNavigateToPersonas} />}
           />
         ) : (
           <ErrorState message={state.message} onRetry={load} />

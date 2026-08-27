@@ -20,8 +20,17 @@ function PersonaSelectRoute() {
   return (
     <PersonaSelectPage
       onSelect={(persona) => navigate(`/upload/${persona.id}`)}
+      onNavigateToPersonas={() => navigate('/personas')}
     />
   );
+}
+
+// TransactionUploadPage도 PersonaSelectRoute와 같은 이유로 래퍼를 둔다 —
+// PERSONA_NOT_FOUND의 "페르소나 선택으로" 버튼이 풀 리로드 대신 SPA 전환을
+// 쓰려면 useNavigate가 필요하고, 그걸 컴포넌트 안에 직접 넣지 않는다.
+function TransactionUploadRoute() {
+  const navigate = useNavigate();
+  return <TransactionUploadPage onNavigateToPersonas={() => navigate('/personas')} />;
 }
 
 // 다음 사람은 이 배열 맨 끝에 한 줄만 추가한다. 같은 지점에 동시에 삽입하면
@@ -35,7 +44,7 @@ export const routes: RouteEntry[] = [
   // TransactionUploadPage는 아직 :personaId를 읽지 않는다(팀 합의 대기 —
   // 위 PersonaSelectRoute 주석 참고). URL에는 실려 있으니, 합의되면
   // useParams로 꺼내 쓰면 된다.
-  { path: '/upload/:personaId', element: <TransactionUploadPage /> },
+  { path: '/upload/:personaId', element: <TransactionUploadRoute /> },
 
   // 아래는 팀원 담당 화면 자리 — 각자 여기에 한 줄씩 추가한다.
   // { path: '/route', element: <RouteResultPage /> },      // @seohee-P: 결제 라우팅 결과, 근거 약관 표시

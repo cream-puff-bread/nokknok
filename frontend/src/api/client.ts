@@ -35,13 +35,13 @@ export type SlowRequestPhase = 'WAKING' | 'STILL_WAKING';
 
 export const SLOW_REQUEST_MESSAGE: Record<SlowRequestPhase, string> = {
   WAKING: '서버를 준비하는 중입니다.',
-  STILL_WAKING: '조금만 더 기다려 주세요. 최초 접속 시 서버 기동에 시간이 걸립니다.',
+  STILL_WAKING: '최초 접속 시 서버 기동에 40초 정도 걸립니다. 곧 표시됩니다.',
 };
 
 const WAKING_DELAY_MS = 5_000;
 const STILL_WAKING_DELAY_MS = 15_000;
 
-export interface ApiGetOptions {
+export interface ApiRequestOptions {
   /**
    * 요청이 5초·15초 문턱을 넘기면 각각 한 번씩 호출된다.
    *
@@ -49,17 +49,28 @@ export interface ApiGetOptions {
    * 화면(컴포넌트)이 자기 state를 이 콜백 안에서 갱신하므로, api/client.ts는
    * 타이머만 관리하고 렌더링에는 관여하지 않는다. 어느 화면에서든 같은
    * 방식(onSlowRequest를 넘기고 phase를 state로 받기)으로 재사용할 수 있다.
+   *
+   * GET(apiGet)/POST(apiPost) 둘 다 같은 옵션 타입을 쓴다. 메서드별로
+   * 따로 두면 문턱 값이 바뀔 때 한쪽을 누락해 안내 시점이 어긋날 수 있다.
    */
   onSlowRequest?: (phase: SlowRequestPhase) => void;
 }
 
-export async function apiGet<T>(path: string, options?: ApiGetOptions): Promise<T> {
-  const timers: ReturnType<typeof setTimeout>[] = [];
+// GET/POST 등 메서드에 상관없이 재사용한다. 호출부마다 타이머를 직접
+// 만들면 문턱 값(WAKING_DELAY_MS 등)이 바뀔 때 모든 호출부를 찾아 고쳐야
+// 하고, 하나라도 누락하면 메서드마다 안내 시점이 어긋난다.
+function startSlowRequestTimers(options?: ApiRequestOptions): () => void {
   const onSlowRequest = options?.onSlowRequest;
-  if (onSlowRequest) {
-    timers.push(setTimeout(() => onSlowRequest('WAKING'), WAKING_DELAY_MS));
-    timers.push(setTimeout(() => onSlowRequest('STILL_WAKING'), STILL_WAKING_DELAY_MS));
-  }
+  if (!onSlowRequest) return () => {};
+  const timers = [
+    setTimeout(() => onSlowRequest('WAKING'), WAKING_DELAY_MS),
+    setTimeout(() => onSlowRequest('STILL_WAKING'), STILL_WAKING_DELAY_MS),
+  ];
+  return () => timers.forEach(clearTimeout);
+}
+
+export async function apiGet<T>(path: string, options?: ApiRequestOptions): Promise<T> {
+  const stopTimers = startSlowRequestTimers(options);
 
   let response: Response;
   try {
@@ -69,7 +80,7 @@ export async function apiGet<T>(path: string, options?: ApiGetOptions): Promise<
     throw new ApiRequestError('INTERNAL_ERROR', '서버에 연결할 수 없습니다.');
   } finally {
     // 응답이 왔든 실패했든, 아직 안 울린 타이머는 더 이상 의미가 없다.
-    timers.forEach(clearTimeout);
+    stopTimers();
   }
   if (!response.ok) {
     throw await toApiRequestError(response);

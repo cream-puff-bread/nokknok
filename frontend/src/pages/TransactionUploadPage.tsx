@@ -5,6 +5,7 @@ import { mockUploadTransactions } from '../api/transactionUpload';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
+import { PersonaNotFoundAction } from '../components/PersonaNotFoundAction';
 import { Skeleton } from '../components/Skeleton';
 import type { ApiErrorCode } from '../types/contract';
 
@@ -35,7 +36,16 @@ function validate(file: File): string | null {
   return null;
 }
 
-export function TransactionUploadPage() {
+interface TransactionUploadPageProps {
+  /**
+   * PERSONA_NOT_FOUND 시 "페르소나 선택으로" 버튼을 눌렀을 때 호출된다.
+   * PersonaSelectPage의 onNavigateToPersonas와 같은 이유로 콜백으로 뺐다 —
+   * 이 컴포넌트는 라우팅을 모른다. routes.tsx의 래퍼가 채워준다.
+   */
+  onNavigateToPersonas?: () => void;
+}
+
+export function TransactionUploadPage({ onNavigateToPersonas }: TransactionUploadPageProps) {
   const [state, setState] = useState<UploadState>({ status: 'idle' });
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -121,14 +131,7 @@ export function TransactionUploadPage() {
           state.code === 'PERSONA_NOT_FOUND' ? (
             <ErrorState
               message={state.message}
-              action={
-                <a
-                  href="/personas"
-                  className="bg-white hover:bg-gray-50 border border-gray-300 rounded-lg px-4 py-2 text-gray-700 text-sm font-medium transition-colors inline-block"
-                >
-                  페르소나 선택으로
-                </a>
-              }
+              action={<PersonaNotFoundAction onNavigateToPersonas={onNavigateToPersonas} />}
             />
           ) : (
             <ErrorState message={state.message} onRetry={reset} />
