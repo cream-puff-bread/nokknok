@@ -1,7 +1,9 @@
 import type { ReactElement } from 'react';
-import { Navigate, useNavigate } from 'react-router';
+import { Navigate, useNavigate, useParams } from 'react-router';
 
+import { BalanceDashboardPage } from './pages/BalanceDashboardPage';
 import { PersonaSelectPage } from './pages/PersonaSelectPage';
+import { SimulationPage } from './pages/SimulationPage';
 import { TransactionUploadPage } from './pages/TransactionUploadPage';
 
 export interface RouteEntry {
@@ -33,6 +35,39 @@ function TransactionUploadRoute() {
   return <TransactionUploadPage onNavigateToPersonas={() => navigate('/personas')} />;
 }
 
+// URL 파라미터는 문자열이라 숫자로 바꾸는 곳이 필요하다. 화면이 직접 하면
+// 라우팅을 알게 되므로 래퍼가 맡는다 — 화면은 personaId: number 만 받는다.
+//
+// 딥링크로 /balance/abc 처럼 숫자가 아닌 값이 들어올 수 있다. 그대로 넘기면
+// NaN 이 쿼리에 실려 서버가 422 를 내는데, 이용자 입장에서는 주소가 잘못된
+// 것이지 요청 값이 잘못된 게 아니다. 페르소나 선택으로 돌려보낸다.
+// 형식이 틀린 personaId 는 여기서 걸러내고, 형식은 맞지만 존재하지 않는
+// 페르소나(/balance/999)는 백엔드가 PERSONA_NOT_FOUND 로 알려준다. 후자의
+// "페르소나 선택으로" 이동도 라우팅을 아는 이 계층이 맡는다.
+function withPersonaId(
+  render: (personaId: number, onNavigateToPersonas: () => void) => ReactElement,
+): () => ReactElement {
+  return function PersonaIdRoute() {
+    const { personaId } = useParams();
+    const navigate = useNavigate();
+    const parsed = Number(personaId);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      return <Navigate to="/personas" replace />;
+    }
+    return render(parsed, () => navigate('/personas'));
+  };
+}
+
+const BalanceRoute = withPersonaId((personaId, onNavigateToPersonas) => (
+  <BalanceDashboardPage
+    personaId={personaId}
+    onNavigateToPersonas={onNavigateToPersonas}
+  />
+));
+const SimulateRoute = withPersonaId((personaId, onNavigateToPersonas) => (
+  <SimulationPage personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
+));
+
 // 다음 사람은 이 배열 맨 끝에 한 줄만 추가한다. 같은 지점에 동시에 삽입하면
 // 병합 충돌이 나기 쉬우므로, 배열 중간에 끼워 넣지 않는다.
 export const routes: RouteEntry[] = [
@@ -46,10 +81,11 @@ export const routes: RouteEntry[] = [
   // useParams로 꺼내 쓰면 된다.
   { path: '/upload/:personaId', element: <TransactionUploadRoute /> },
 
+  { path: '/balance/:personaId', element: <BalanceRoute /> },
+  { path: '/simulate/:personaId', element: <SimulateRoute /> },
+
   // 아래는 팀원 담당 화면 자리 — 각자 여기에 한 줄씩 추가한다.
-  // { path: '/route', element: <RouteResultPage /> },      // @seohee-P: 결제 라우팅 결과, 근거 약관 표시
-  // { path: '/balance', element: <BalanceDashboardPage /> }, // @fanfanduck: 가용잔고 대시보드
-  // { path: '/simulate', element: <SimulationPage /> },      // @fanfanduck: 시뮬레이션 입력, 잔고 추이 차트
+  // { path: '/route/:personaId', element: <RouteResultRoute /> },  // @seohee-P: 결제 라우팅 결과, 근거 약관 표시
 
   // 미매칭 경로 전부를 여기서 받는다(항상 배열 맨 끝에 둔다). SPA 폴백(#19)
   // 도입 이후로는 존재하지 않는 경로도 200으로 index.html을 받으므로,

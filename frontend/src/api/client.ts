@@ -87,3 +87,28 @@ export async function apiGet<T>(path: string, options?: ApiRequestOptions): Prom
   }
   return (await response.json()) as T;
 }
+
+export async function apiPost<T>(
+  path: string,
+  body: unknown,
+  options?: ApiRequestOptions,
+): Promise<T> {
+  const clearSlowRequestTimers = startSlowRequestTimers(options);
+
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiRequestError('INTERNAL_ERROR', '서버에 연결할 수 없습니다.');
+  } finally {
+    clearSlowRequestTimers();
+  }
+  if (!response.ok) {
+    throw await toApiRequestError(response);
+  }
+  return (await response.json()) as T;
+}
