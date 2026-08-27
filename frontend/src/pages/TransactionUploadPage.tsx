@@ -5,7 +5,9 @@ import { mockUploadTransactions } from '../api/transactionUpload';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
+import { PersonaNotFoundAction } from '../components/PersonaNotFoundAction';
 import { Skeleton } from '../components/Skeleton';
+import type { ApiErrorCode } from '../types/contract';
 
 const ACCEPTED_EXTENSIONS = ['.csv', '.tsv'];
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // backend adapter/file_provider.py 와 동일한 상한
@@ -14,7 +16,7 @@ type UploadState =
   | { status: 'idle' }
   | { status: 'invalid'; fileName: string; message: string }
   | { status: 'uploading'; fileName: string }
-  | { status: 'error'; message: string }
+  | { status: 'error'; message: string; code: ApiErrorCode }
   | { status: 'empty' }
   | { status: 'success'; rowCount: number; skippedRowCount: number };
 
@@ -34,7 +36,16 @@ function validate(file: File): string | null {
   return null;
 }
 
-export function TransactionUploadPage() {
+interface TransactionUploadPageProps {
+  /**
+   * PERSONA_NOT_FOUND 시 "페르소나 선택으로" 버튼을 눌렀을 때 호출된다.
+   * PersonaSelectPage의 onNavigateToPersonas와 같은 이유로 콜백으로 뺐다 —
+   * 이 컴포넌트는 라우팅을 모른다. routes.tsx의 래퍼가 채워준다.
+   */
+  onNavigateToPersonas?: () => void;
+}
+
+export function TransactionUploadPage({ onNavigateToPersonas }: TransactionUploadPageProps) {
   const [state, setState] = useState<UploadState>({ status: 'idle' });
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -58,11 +69,14 @@ export function TransactionUploadPage() {
             },
       );
     } catch (err: unknown) {
-      const message =
+      const { message, code } =
         err instanceof ApiRequestError
-          ? err.message
-          : '업로드하지 못했습니다. 잠시 후 다시 시도해 주세요.';
-      setState({ status: 'error', message });
+          ? err
+          : {
+              message: '업로드하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+              code: 'INTERNAL_ERROR' as const,
+            };
+      setState({ status: 'error', message, code });
     }
   };
 
@@ -110,8 +124,18 @@ export function TransactionUploadPage() {
           <p className="text-sm text-red-600">{state.message}</p>
         )}
 
+        {/* mockUploadTransactions는 personaId를 조회하지 않으므로 지금은
+            PERSONA_NOT_FOUND를 내지 않는다(:personaId를 실제로 검증하게
+            되면 이 경로가 살아난다). code로 분기하는 원칙은 미리 맞춰둔다. */}
         {state.status === 'error' && (
-          <ErrorState message={state.message} onRetry={reset} />
+          state.code === 'PERSONA_NOT_FOUND' ? (
+            <ErrorState
+              message={state.message}
+              action={<PersonaNotFoundAction onNavigateToPersonas={onNavigateToPersonas} />}
+            />
+          ) : (
+            <ErrorState message={state.message} onRetry={reset} />
+          )
         )}
 
         {state.status === 'empty' && (
