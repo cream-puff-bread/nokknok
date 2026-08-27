@@ -46,27 +46,40 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
+          set -o pipefail
+
+          # 결과 한 줄을 job summary 에 남긴다. 성공했을 때도 남기는 이유는,
+          # 안 남기면 몇 건이 돌았는지 확인하려고 매번 Actions 로그를 열어야
+          # 하기 때문이다. CI 를 넣은 목적이 "PR 본문과 리뷰어의 수치가 다투지
+          # 않게" 하는 것인데, 그 숫자를 꺼내 보기 어려우면 목적을 절반만 이룬다.
+          summarize() {
+            {
+              echo "### $1"
+              echo ""
+              echo '```'
+              grep -E '[0-9]+ (passed|failed|error)' pytest-output.txt | tail -1
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
           if [ -z "$DATABASE_URL" ]; then
             echo "::warning::DATABASE_URL 시크릿이 없어 통합 테스트가 skip됩니다. 단위 테스트만 검증됩니다."
-            {
-              echo "### ⚠️ 통합 테스트 skip"
-              echo ""
-              echo "\`DATABASE_URL\` 시크릿이 등록되지 않아 단위 테스트만 실행했습니다."
-              echo "통합 테스트를 켜려면 저장소 시크릿에 \`nokknok_ci\` 롤 접속 문자열을 넣으세요."
-            } >> "$GITHUB_STEP_SUMMARY"
-            pytest -q
-            exit $?
+            pytest -q | tee pytest-output.txt
+            code=$?
+            summarize "⚠️ 통합 테스트 skip — 단위 테스트만 검증"
+            echo "\`DATABASE_URL\` 시크릿을 등록하면 통합 테스트까지 돕니다." >> "$GITHUB_STEP_SUMMARY"
+            exit $code
           fi
 
           # 시크릿이 있으면 통합 테스트가 반드시 실제로 돌아야 한다.
           # skip 이 하나라도 있으면 DB 연결이 실패해 조용히 건너뛴 것이므로 실패시킨다.
-          set -o pipefail
           pytest -q | tee pytest-output.txt
           if grep -qE '[0-9]+ skipped' pytest-output.txt; then
             echo "::error::DATABASE_URL 이 설정됐는데 skip 된 테스트가 있습니다. DB 연결에 실패했거나 권한이 부족합니다."
-            grep -E 'passed|skipped|failed' pytest-output.txt >> "$GITHUB_STEP_SUMMARY"
+            summarize "❌ skip 된 테스트 발견 — DB 연결 실패 또는 권한 부족"
             exit 1
           fi
+          summarize "✅ 백엔드 테스트 (통합 포함)"
 
   frontend:
     runs-on: ubuntu-latest
