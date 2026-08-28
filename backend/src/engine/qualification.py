@@ -138,22 +138,21 @@ def month_start_period(as_of: date) -> tuple[date, date]:
     return last_month_start, last_month_end
 
 
-# 청구 마감일-결제일 간격의 기본값. schema.sql은 card.billing_close_day(카드 단위
-# 고정값)만 두고 persona_card.payment_day(페르소나별 결제일)와 잇는 컬럼이 없다.
-# 국내 카드에서 가장 흔한 조합인 "14일 마감·25일 결제"(11일 간격)를 기본으로 쓴다 —
-# 카드 B 시드값(billing_close_day=14)과 카드 A 페르소나 다수의 payment_day=25가
-# 정확히 이 간격이라 시연 데이터와도 맞아떨어진다. 팀 확인 대기 중(다음할일.md).
-DEFAULT_BILLING_OFFSET_DAYS = 11
-
-
 def billing_cycle_period(
-    payment_day: int, as_of: date, offset_days: int = DEFAULT_BILLING_OFFSET_DAYS
+    payment_day: int, as_of: date, offset_days: int
 ) -> tuple[date, date]:
     """결제일에서 마감일을 역산해, 가장 최근에 끝난 청구 주기를 반환한다.
 
-    perf_period_type=BILLING_CYCLE 카드에 쓴다. 마감일은 card.billing_close_day의
-    CHECK 제약(1~28)과 같은 범위로 맞춘다 — 29~31일은 월마다 존재 여부가 달라
-    "마감일"이라는 고정 개념과 맞지 않는다.
+    perf_period_type=BILLING_CYCLE 카드에 쓴다. offset_days는 card.billing_offset_days
+    (결제일에서 며칠 전이 마감일인지)에서 온다 — 카드마다 다른 값을 실제로
+    반영하기 위해 기본값을 두지 않는다. 예전에는 팀 확인 전 임시로
+    DEFAULT_BILLING_OFFSET_DAYS=11을 모든 카드에 똑같이 적용했는데, 이 값
+    하나가 실적 충족 여부를 뒤집는다는 게 실제 데이터로 확인돼(2026-08-27
+    VANDAL·빵빵덕 논의) 카드별 실제 데이터를 쓰는 쪽으로 바꿨다.
+
+    마감일은 card.billing_offset_days의 CHECK 제약(1~28)과 같은 범위로
+    맞춘다 — 29~31일은 월마다 존재 여부가 달라 "마감일"이라는 고정
+    개념과 맞지 않는다.
 
     as_of가 이번 달 마감일보다 뒤면 이번 달 마감이 이미 끝난 주기이고,
     아직 마감일 전이면(당일 포함) 지난달 마감이 가장 최근에 끝난 주기다.
@@ -185,7 +184,10 @@ def billing_cycle_period(
 
 
 def performance_period(
-    perf_period_type: str, as_of: date, payment_day: int | None = None
+    perf_period_type: str,
+    as_of: date,
+    payment_day: int | None = None,
+    billing_offset_days: int | None = None,
 ) -> tuple[date, date]:
     """card.perf_period_type에 따라 실적 산정 기간을 고른다."""
     if perf_period_type == "MONTH_START":
@@ -193,5 +195,7 @@ def performance_period(
     if perf_period_type == "BILLING_CYCLE":
         if payment_day is None:
             raise ValueError("BILLING_CYCLE 카드는 payment_day가 있어야 합니다")
-        return billing_cycle_period(payment_day, as_of)
+        if billing_offset_days is None:
+            raise ValueError("BILLING_CYCLE 카드는 billing_offset_days가 있어야 합니다")
+        return billing_cycle_period(payment_day, as_of, billing_offset_days)
     raise ValueError(f"알 수 없는 실적 산정 방식: {perf_period_type}")

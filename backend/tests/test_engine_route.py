@@ -30,7 +30,7 @@ def _card(card_id: int, monthly_cap: int | None = None) -> Card:
         issuer="테스트카드사",
         name=f"카드{card_id}",
         perf_period_type="MONTH_START",
-        billing_close_day=None,
+        billing_offset_days=None,
         monthly_cap=monthly_cap,
         is_demo=True,
     )

@@ -21,7 +21,11 @@ class Card:
     issuer: str
     name: str
     perf_period_type: str  # MONTH_START | BILLING_CYCLE
-    billing_close_day: int | None
+    # 결제일에서 며칠 전이 실적 산정 마감일인지(BILLING_CYCLE 카드만, 그 외
+    # NULL). 2026-08-28 ①-b 결정으로 card.billing_close_day를 재정의한
+    # 값이다 — DB 컬럼명은 아직 billing_close_day이고 _CARD_SQL에서 별칭으로
+    # 이 이름을 맞춰둔 상태다(VANDAL의 컬럼 리네임 PR이 오면 별칭만 지우면 됨).
+    billing_offset_days: int | None
     monthly_cap: int | None
     is_demo: bool
 
@@ -52,7 +56,9 @@ class Exclusion:
 
 _CARD_SQL = text(
     """
-    SELECT id, issuer, name, perf_period_type, billing_close_day, monthly_cap, is_demo
+    SELECT id, issuer, name, perf_period_type,
+           billing_close_day AS billing_offset_days,
+           monthly_cap, is_demo
     FROM card
     WHERE id IN :card_ids
     ORDER BY id
@@ -101,7 +107,7 @@ def get_cards(session: Session, card_ids: list[int]) -> list[Card]:
             issuer=r["issuer"],
             name=r["name"],
             perf_period_type=r["perf_period_type"],
-            billing_close_day=r["billing_close_day"],
+            billing_offset_days=r["billing_offset_days"],
             monthly_cap=r["monthly_cap"],
             is_demo=r["is_demo"],
         )

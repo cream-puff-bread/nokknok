@@ -196,42 +196,51 @@ class TestMonthStartPeriod:
 
 class TestBillingCyclePeriod:
     """카드 B(BILLING_CYCLE): 결제일이 바뀌면 마감일도 바뀌어 실적 집계 기간이
-    달라진다는 게 backend/README.md 필수 테스트다. 마감일=결제일-11일을
-    기본 오프셋으로 쓴다 — 자세한 근거는 qualification.py의 상수 주석 참조.
+    달라진다는 게 backend/README.md 필수 테스트다.
+
+    offset_days는 이제 card.billing_offset_days에서 온 실제 값을 받는
+    파라미터다(기본값 없음) — 2026-08-27 카드 B 실측 검증(VANDAL·빵빵덕 논의)
+    으로 모든 카드에 같은 오프셋을 임의 적용하던 이전 방식(고정 상수 11)이
+    페르소나 실적 판정을 실제로 뒤집는다는 게 드러나 폐기됐다.
     """
 
     def test_결제일이_다르면_같은_카드라도_집계_기간이_달라진다(self):
         as_of = date(2026, 9, 20)
 
-        period_25 = billing_cycle_period(payment_day=25, as_of=as_of)
-        period_14 = billing_cycle_period(payment_day=14, as_of=as_of)
+        period_25 = billing_cycle_period(payment_day=25, as_of=as_of, offset_days=11)
+        period_14 = billing_cycle_period(payment_day=14, as_of=as_of, offset_days=11)
 
         assert period_25 != period_14
 
-    def test_결제일_25일이면_카드_B_시드값인_14일_마감과_일치한다(self):
-        # billing_close_day=14(카드 B 시드)와 맞아떨어지는지 확인한다.
-        start, end = billing_cycle_period(payment_day=25, as_of=date(2026, 9, 20))
+    def test_카드_B_시드값(self):
+        # 카드 B 실제 값: payment_day=14, billing_offset_days=14
+        # (2026-08-27 VANDAL·빵빵덕 합의 — 마감일 28일, 기간 실측으로 검증됨).
+        start, end = billing_cycle_period(payment_day=14, as_of=date(2026, 9, 20), offset_days=14)
 
-        assert end == date(2026, 9, 14)
-        assert start == date(2026, 8, 15)
+        assert end == date(2026, 8, 28)
+        assert start == date(2026, 7, 29)
 
     def test_마감일_당일에는_아직_그_주기가_끝나지_않은_것으로_본다(self):
-        start, end = billing_cycle_period(payment_day=25, as_of=date(2026, 9, 14))
+        start, end = billing_cycle_period(payment_day=25, as_of=date(2026, 9, 14), offset_days=11)
 
         assert end == date(2026, 8, 14)
         assert start == date(2026, 7, 15)
 
     def test_performance_period가_BILLING_CYCLE을_위임한다(self):
         via_wrapper = performance_period(
-            "BILLING_CYCLE", as_of=date(2026, 9, 20), payment_day=14
+            "BILLING_CYCLE", as_of=date(2026, 9, 20), payment_day=14, billing_offset_days=14
         )
-        direct = billing_cycle_period(payment_day=14, as_of=date(2026, 9, 20))
+        direct = billing_cycle_period(payment_day=14, as_of=date(2026, 9, 20), offset_days=14)
 
         assert via_wrapper == direct
 
     def test_BILLING_CYCLE인데_payment_day가_없으면_에러(self):
         with pytest.raises(ValueError, match="payment_day"):
-            performance_period("BILLING_CYCLE", as_of=date(2026, 9, 20))
+            performance_period("BILLING_CYCLE", as_of=date(2026, 9, 20), billing_offset_days=14)
+
+    def test_BILLING_CYCLE인데_billing_offset_days가_없으면_에러(self):
+        with pytest.raises(ValueError, match="billing_offset_days"):
+            performance_period("BILLING_CYCLE", as_of=date(2026, 9, 20), payment_day=14)
 
     def test_MONTH_START은_month_start_period와_동일하다(self):
         as_of = date(2026, 9, 20)

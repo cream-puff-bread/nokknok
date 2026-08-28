@@ -181,7 +181,10 @@ def evaluate_route(
 
         exclusions = exclusions_by_card.get(card.id, [])
         period_start, period_end = performance_period(
-            card.perf_period_type, as_of, payment_day=owned.payment_day
+            card.perf_period_type,
+            as_of,
+            payment_day=owned.payment_day,
+            billing_offset_days=card.billing_offset_days,
         )
         perf_current = _card_performance(
             transactions, card.id, exclusions, period_start, period_end
