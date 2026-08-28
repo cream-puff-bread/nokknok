@@ -94,6 +94,28 @@ class NoVerifiedRuleError(NokknokError):
         self.excluded_cards = excluded_cards
 
 
+class InvalidCategoryError(NokknokError):
+    """spend_category 마스터에 없는 카테고리 코드다.
+
+    contracts/api-spec.yaml의 ErrorResponse.code 중 INVALID_CATEGORY와
+    짝지어진다(src/api/errors.py). 카테고리 오탈자를 여기서 걸러내지
+    않으면 select_rule이 조용히 매치 실패해 할인 0원으로 계산된다 —
+    CLAUDE.md가 경계하는 "그럴듯하지만 틀린 숫자" 실패 유형이다.
+    """
+
+    def __init__(self, category: str) -> None:
+        super().__init__(f"등록되지 않은 소비 카테고리입니다: {category}")
+        self.category = category
+
+
+class InvalidAmountError(NokknokError):
+    """amount가 0 이하다. ErrorResponse.code의 INVALID_AMOUNT와 짝지어진다."""
+
+    def __init__(self, amount: int) -> None:
+        super().__init__(f"금액은 0보다 커야 합니다: {amount}")
+        self.amount = amount
+
+
 # ─────────────────────────────────────────────
 # 약관 파이프라인
 # ─────────────────────────────────────────────

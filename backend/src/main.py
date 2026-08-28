@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.errors import register_error_handlers
 from src.api.health import router as health_router
 from src.api.personas import router as personas_router
+from src.api.route import router as route_router
 from src.api.simulate import router as simulate_router
 from src.common.config import Settings, get_settings, loaded_env_files
 from src.common.db import dispose_engine
@@ -112,6 +113,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # 적용된다는 점을 드러내려고 마지막에 함께 둔다.
     app.include_router(health_router)
     app.include_router(personas_router)
+    app.include_router(route_router)
     app.include_router(simulate_router)
     register_error_handlers(app)
     return app
