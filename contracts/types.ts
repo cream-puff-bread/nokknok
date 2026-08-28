@@ -21,6 +21,26 @@ export const SCENARIO_COLOR: Record<ScenarioLevel, string> = {
   TIGHT: '#f59e0b',       // amber-500
 };
 
+/**
+ * 확정 지출 유형의 화면 표기. SCENARIO_LABEL과 같은 이유로 계약에 둔다 —
+ * 세 사람이 각자 다른 한국어를 쓰면 화면마다 같은 값이 달리 보인다.
+ * spend_category처럼 DB가 소유하는 값 집합이 아니라 계약이 고정한 enum이므로
+ * 여기 적어도 DB와 어긋날 여지가 없다.
+ */
+export const EXPENSE_TYPE_LABEL: Record<ExpenseType, string> = {
+  SUBSCRIPTION: '구독',
+  INSTALLMENT: '할부',
+  LOAN: '대출',
+  INSURANCE: '보험',
+};
+
+/** 결제 방식의 화면 표기. */
+export const PAYMENT_TYPE_LABEL: Record<PaymentType, string> = {
+  LUMP: '일시불',
+  INSTALLMENT: '할부',
+  INTEREST_FREE: '무이자 할부',
+};
+
 export interface Persona {
   id: number;
   code: PersonaCode;

@@ -21,13 +21,91 @@ async function toApiRequestError(response: Response): Promise<ApiRequestError> {
   );
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
+// ─────────────────────────────────────────────
+// 콜드스타트 안내
+// ─────────────────────────────────────────────
+// Render 콜드스타트 + Neon 자동 정지 해제가 겹치면 첫 API 호출이 최대 36초까지
+// 걸린다(실측 32.6초). 그동안 스켈레톤만 계속 돌면 멈춘 것처럼 보인다
+// (contracts/ui-system.md "로딩" 규칙 — 표시가 없으면 멈춘 것처럼 보인다).
+//
+// 타임아웃은 걸지 않는다. 36초 걸려도 결국 성공하는 편이, 30초에 끊고
+// 오류를 내는 것보다 낫다 — 심사 중 "고장난 서비스"로 보이는 것을 막는 게
+// 목적이지, 응답을 강제로 끝내는 게 목적이 아니다.
+export type SlowRequestPhase = 'WAKING' | 'STILL_WAKING';
+
+export const SLOW_REQUEST_MESSAGE: Record<SlowRequestPhase, string> = {
+  WAKING: '서버를 준비하는 중입니다.',
+  STILL_WAKING: '최초 접속 시 서버 기동에 40초 정도 걸립니다. 곧 표시됩니다.',
+};
+
+const WAKING_DELAY_MS = 5_000;
+const STILL_WAKING_DELAY_MS = 15_000;
+
+export interface ApiRequestOptions {
+  /**
+   * 요청이 5초·15초 문턱을 넘기면 각각 한 번씩 호출된다.
+   *
+   * 콜백으로 넘기는 이유는 이 파일이 React를 몰라도 되게 하기 위해서다 —
+   * 화면(컴포넌트)이 자기 state를 이 콜백 안에서 갱신하므로, api/client.ts는
+   * 타이머만 관리하고 렌더링에는 관여하지 않는다. 어느 화면에서든 같은
+   * 방식(onSlowRequest를 넘기고 phase를 state로 받기)으로 재사용할 수 있다.
+   *
+   * GET(apiGet)/POST(apiPost) 둘 다 같은 옵션 타입을 쓴다. 메서드별로
+   * 따로 두면 문턱 값이 바뀔 때 한쪽을 누락해 안내 시점이 어긋날 수 있다.
+   */
+  onSlowRequest?: (phase: SlowRequestPhase) => void;
+}
+
+// GET/POST 등 메서드에 상관없이 재사용한다. 호출부마다 타이머를 직접
+// 만들면 문턱 값(WAKING_DELAY_MS 등)이 바뀔 때 모든 호출부를 찾아 고쳐야
+// 하고, 하나라도 누락하면 메서드마다 안내 시점이 어긋난다.
+function startSlowRequestTimers(options?: ApiRequestOptions): () => void {
+  const onSlowRequest = options?.onSlowRequest;
+  if (!onSlowRequest) return () => {};
+  const timers = [
+    setTimeout(() => onSlowRequest('WAKING'), WAKING_DELAY_MS),
+    setTimeout(() => onSlowRequest('STILL_WAKING'), STILL_WAKING_DELAY_MS),
+  ];
+  return () => timers.forEach(clearTimeout);
+}
+
+export async function apiGet<T>(path: string, options?: ApiRequestOptions): Promise<T> {
+  const stopTimers = startSlowRequestTimers(options);
+
   let response: Response;
   try {
     response = await fetch(path);
   } catch {
     // 네트워크 자체가 끊긴 경우. 서버가 준 code가 없으므로 INTERNAL_ERROR로 다룬다.
     throw new ApiRequestError('INTERNAL_ERROR', '서버에 연결할 수 없습니다.');
+  } finally {
+    // 응답이 왔든 실패했든, 아직 안 울린 타이머는 더 이상 의미가 없다.
+    stopTimers();
+  }
+  if (!response.ok) {
+    throw await toApiRequestError(response);
+  }
+  return (await response.json()) as T;
+}
+
+export async function apiPost<T>(
+  path: string,
+  body: unknown,
+  options?: ApiRequestOptions,
+): Promise<T> {
+  const clearSlowRequestTimers = startSlowRequestTimers(options);
+
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiRequestError('INTERNAL_ERROR', '서버에 연결할 수 없습니다.');
+  } finally {
+    clearSlowRequestTimers();
   }
   if (!response.ok) {
     throw await toApiRequestError(response);
