@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from src.api.deps import get_db_session
 from src.api.errors import ErrorCode
+from src.common.config import get_settings
 from src.main import create_app
 
 pytestmark = pytest.mark.integration
@@ -50,11 +51,20 @@ class TestRouteHappyPath:
             "candidatesTotal", "candidatesPruned", "elapsedMs", "excludedUnverifiedCards",
         }
 
-    def test_explanation은_LLM_미연결로_null이다(self, client: TestClient):
+    def test_explanation은_LLM_키_유무에_따라_null_또는_문자열이다(self, client: TestClient):
         # CLAUDE.md: LLM 실패 시에도 계산 결과는 반드시 응답에 포함된다.
-        # 지금은 LLM 연결 자체를 안 했으므로 항상 null이어야 한다.
+        #
+        # LLM_API_KEY 유무로 분기해야 한다 — 이전에는 항상 null만 확인했는데,
+        # 그건 "LLM 미연결"이 아니라 "이 로컬 환경에 키가 없어서 우연히
+        # null"인 상태였다. 실제 키가 있는 환경(시연 환경이 정확히 이렇다)
+        # 에서는 explanation이 문자열로 나와야 정상인데, 그 경우를 이
+        # 테스트가 실패로 판정하고 있었다 — 배포 조건에서만 깨지는,
+        # 방향이 거꾸로 된 테스트였다(하영·VANDAL, 2026-08-28 리뷰).
         best = _route(client).json()["best"]
-        assert best["explanation"] is None
+        if get_settings().llm_api_key:
+            assert isinstance(best["explanation"], str)
+        else:
+            assert best["explanation"] is None
 
     def test_alternatives에는_explanation_필드가_없다(self, client: TestClient):
         body = _route(client, personaId=2).json()
