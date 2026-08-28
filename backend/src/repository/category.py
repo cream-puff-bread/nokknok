@@ -26,6 +26,8 @@ ALL 보다 우선한다" 는 우선순위 규칙이 의미를 잃는다 — 거�
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -33,6 +35,13 @@ from sqlalchemy.orm import Session
 WILDCARD_CATEGORY = "ALL"
 
 _SQL = text("SELECT code FROM spend_category ORDER BY sort_no")
+_SQL_WITH_LABEL = text("SELECT code, label FROM spend_category ORDER BY sort_no")
+
+
+@dataclass(frozen=True, slots=True)
+class SpendCategory:
+    code: str
+    label: str
 
 
 def list_category_codes(session: Session) -> tuple[str, ...]:
@@ -46,3 +55,19 @@ def list_purchase_category_codes(session: Session) -> tuple[str, ...]:
     질의 해석과 결제 요청 검증은 이 목록을 써야 한다.
     """
     return tuple(c for c in list_category_codes(session) if c != WILDCARD_CATEGORY)
+
+
+def list_purchase_categories(session: Session) -> tuple[SpendCategory, ...]:
+    """화면 선택지용 목록. 코드와 함께 한글 라벨을 돌려준다.
+
+    sort_no 순서를 그대로 유지한다 — 마스터가 이미 화면에 보여줄 순서로
+    정렬돼 있으므로 프론트가 다시 정렬할 이유가 없다.
+
+    라벨을 함께 내려보내는 이유는 코드와 같다. 화면이 "ONLINE → 온라인쇼핑"
+    대응표를 들고 있으면 카테고리를 추가할 때 고쳐야 할 곳이 DB 와 프론트
+    두 군데가 된다(CLAUDE.md "No hardcoded enums that mirror DB data").
+    """
+    rows = session.execute(_SQL_WITH_LABEL).all()
+    return tuple(
+        SpendCategory(code=r[0], label=r[1]) for r in rows if r[0] != WILDCARD_CATEGORY
+    )
