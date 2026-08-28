@@ -158,6 +158,7 @@ def route_payment(session: SessionDep, body: RouteRequest) -> RouteResponse:
         new_card_suggestion=(
             NewCardSuggestionResponse(
                 card_name=result.new_card_suggestion.card_name,
+                is_demo=result.new_card_suggestion.is_demo,
                 expected_gain=result.new_card_suggestion.expected_gain,
                 is_affiliate=result.new_card_suggestion.is_affiliate,
             )

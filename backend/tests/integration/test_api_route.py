@@ -42,7 +42,7 @@ class TestRouteHappyPath:
         body = response.json()
         assert set(body) == {"best", "alternatives", "newCardSuggestion", "computeMeta"}
         assert set(body["best"]) == {
-            "cardId", "cardName", "payDate", "paymentType", "installmentMonths",
+            "cardId", "cardName", "isDemo", "payDate", "paymentType", "installmentMonths",
             "expectedDiscount", "perfAchieved", "perfCurrent", "perfRequired",
             "ruleId", "explanation", "clauses",
         }
@@ -105,3 +105,33 @@ class TestRouteValidation:
 
         assert response.status_code == 422
         assert response.json()["code"] == ErrorCode.INVALID_AMOUNT
+
+
+class TestDemoBadge:
+    """시연용 카드 표시.
+
+    카탈로그의 카드가 전부 가상 상품인데 화면이 그걸 알 방법이 없으면,
+    실제 할인액과 약관 인용이 붙은 추천을 실존 상품으로 오해할 수 있다
+    (schema.sql: "화면에도 명시해야 한다", ui-system.md 뱃지 규칙).
+    """
+
+    def test_후보에_isDemo가_실려온다(self, client):
+        body = client.post(
+            "/api/route", json={"personaId": 1, "amount": 100_000, "category": "ONLINE"}
+        ).json()
+
+        assert "isDemo" in body["best"]
+        assert all("isDemo" in a for a in body["alternatives"])
+
+    def test_isDemo가_카드_마스터의_값과_같다(self, client, db_session):
+        from sqlalchemy import text
+
+        body = client.post(
+            "/api/route", json={"personaId": 1, "amount": 100_000, "category": "ONLINE"}
+        ).json()
+
+        rows = db_session.execute(text("SELECT id, is_demo FROM card")).all()
+        expected = {r[0]: r[1] for r in rows}
+
+        for candidate in [body["best"], *body["alternatives"]]:
+            assert candidate["isDemo"] == expected[candidate["cardId"]]

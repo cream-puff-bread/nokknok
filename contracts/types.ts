@@ -41,6 +41,21 @@ export const PAYMENT_TYPE_LABEL: Record<PaymentType, string> = {
   INTEREST_FREE: '무이자 할부',
 };
 
+/**
+ * 소비 카테고리 마스터(spend_category) 한 행. GET /api/categories 응답.
+ *
+ * 코드와 라벨을 모두 서버가 내려보낸다. 화면이 'ONLINE' → '온라인쇼핑'
+ * 대응표를 들고 있으면 카테고리를 추가할 때 DB 와 프론트 두 곳을 고쳐야
+ * 하고, 한 곳을 빠뜨리면 조용히 어긋난다.
+ *
+ * 규칙 매칭용 와일드카드 ALL 은 이 목록에 없다 — 결제 카테고리가 아니다.
+ * 응답은 이미 화면 표시 순서(sort_no)로 정렬돼 있다.
+ */
+export interface SpendCategory {
+  code: string;
+  label: string;
+}
+
 export interface Persona {
   id: number;
   code: PersonaCode;
@@ -117,6 +132,13 @@ export interface ClauseRef {
 export interface RouteCandidate {
   cardId: number;
   cardName: string;
+  /**
+   * 실제 카드 상품이 아닌 시연용 가상 상품 여부(card.is_demo).
+   * true 이면 화면에 "시연용" 뱃지를 반드시 표시한다 —
+   * ui-system.md 규칙이자 schema.sql 의 컬럼 주석이다.
+   * 지금 카탈로그의 카드 3종은 전부 true 다.
+   */
+  isDemo: boolean;
   /** 'YYYY-MM-DD' */
   payDate: string;
   paymentType: PaymentType;
@@ -151,6 +173,8 @@ export interface RouteOption extends RouteCandidate {
 
 export interface NewCardSuggestion {
   cardName: string;
+  /** RouteCandidate.isDemo 와 같다. 제안 카드에도 뱃지를 표시한다. */
+  isDemo: boolean;
   expectedGain: number;
   isAffiliate: boolean;
 }
