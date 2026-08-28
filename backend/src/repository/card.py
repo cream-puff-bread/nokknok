@@ -22,9 +22,9 @@ class Card:
     name: str
     perf_period_type: str  # MONTH_START | BILLING_CYCLE
     # 결제일에서 며칠 전이 실적 산정 마감일인지(BILLING_CYCLE 카드만, 그 외
-    # NULL). 2026-08-28 ①-b 결정으로 card.billing_close_day를 재정의한
-    # 값이다 — DB 컬럼명은 아직 billing_close_day이고 _CARD_SQL에서 별칭으로
-    # 이 이름을 맞춰둔 상태다(VANDAL의 컬럼 리네임 PR이 오면 별칭만 지우면 됨).
+    # NULL). 2026-08-28 ①-b 결정으로 card.billing_close_day를 재정의·
+    # 리네임한 값이다(VANDAL, fix/billing-offset-rename). CHECK 제약
+    # chk_billing_offset이 perf_period_type과의 정합성을 DB에서 강제한다.
     billing_offset_days: int | None
     monthly_cap: int | None
     is_demo: bool
@@ -56,9 +56,7 @@ class Exclusion:
 
 _CARD_SQL = text(
     """
-    SELECT id, issuer, name, perf_period_type,
-           billing_close_day AS billing_offset_days,
-           monthly_cap, is_demo
+    SELECT id, issuer, name, perf_period_type, billing_offset_days, monthly_cap, is_demo
     FROM card
     WHERE id IN :card_ids
     ORDER BY id
