@@ -9,7 +9,9 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from src.api.query_parser import QueryParser, build_query_parser
+from src.common.config import get_settings
 from src.common.db import session_scope
+from src.common.llm import LlmClient, runtime_profile
 from src.repository import category as category_repo
 
 
@@ -41,3 +43,20 @@ def get_query_parser(session: SessionDep) -> QueryParser:
     같은 애매한 질의에서 모델이 ALL 을 고를 수 있다.
     """
     return build_query_parser(category_repo.list_purchase_category_codes(session))
+
+
+def get_explanation_client() -> LlmClient | None:
+    """설명 생성용 LLM 클라이언트. get_query_parser 와 같은 이유로 의존성이다.
+
+    라우터 안에서 직접 만들면 테스트가 실제 LLM 을 호출하지 않고는
+    엔드포인트를 검증할 수 없다. 특히 "LLM 이 실패해도 계산 결과는 그대로
+    응답된다"(CLAUDE.md)는 이 프로젝트의 핵심 불변식인데, 클라이언트를
+    갈아끼울 수 없으면 그게 지켜지는지 확인할 방법이 실패를 기다리는 것뿐이다.
+
+    키가 없으면 None 을 돌려준다. 실패가 뻔한 네트워크 호출로 런타임 예산을
+    낭비하지 않기 위해서다 — 호출부는 None 을 explanation=null 로 다룬다.
+    """
+    settings = get_settings()
+    if not settings.llm_api_key:
+        return None
+    return LlmClient(runtime_profile(settings))
