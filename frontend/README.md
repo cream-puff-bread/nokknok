@@ -68,6 +68,28 @@ AI가 만들어 준 `tailwind.config.js` 를 새로 추가하지 않는다. CSS 
 LLM 생성 실패 시 `explanation` 은 `null` 이지만 계산 결과는 정상이다.
 설명이 없다고 카드 전체를 숨기지 않는다.
 
+### 카테고리 선택지는 GET /api/categories 로 받는다
+
+`spend_category` 코드는 DB 소유 값이라 화면이 지어내면 안 된다
+(CLAUDE.md "No hardcoded enums that mirror DB data"). 코드를 자유 입력으로
+받으면 이용자가 "온라인" 같은 그럴듯한 값을 쳤을 때 `INVALID_CATEGORY` 만
+돌아온다 — 고를 수 있는 값을 알려주지 않고 틀렸다고만 답하는 셈이다.
+
+`GET /api/categories` 가 `{ code, label }` 목록을 화면 표시 순서대로 내려준다.
+`ALL` 은 규칙 매칭용 와일드카드라 이 목록에 없다. **한글 라벨도 서버가 주므로
+`ONLINE → 온라인쇼핑` 대응표를 화면에 두지 않는다** — 두면 카테고리를 추가할 때
+고쳐야 할 곳이 DB 와 프론트 두 군데가 되고, 한 곳을 빠뜨리면 조용히 어긋난다.
+
+### isDemo 가 true 면 "시연용" 뱃지를 표시한다
+
+`RouteCandidate.isDemo` 와 `NewCardSuggestion.isDemo` 는 그 카드가 실제 상품이
+아니라 시연용 가상 상품이라는 뜻이다(`schema.sql` 의 `card.is_demo`).
+
+지금 카탈로그의 카드 3종은 **전부 `true`** 다. 실제 할인액과 약관 인용이 붙은
+추천에 아무 표시가 없으면 실존 상품으로 오해할 수 있어서, `ui-system.md` 와
+`schema.sql` 컬럼 주석이 둘 다 화면 표시를 요구한다. 화면이 값을 지어낼 수
+없으므로 계산 결과와 같은 경로로 실려 온다.
+
 ## 미결 사항
 
 ### 라우팅 방식
