@@ -21,7 +21,7 @@
 -- 카드 A : 계단형 (실적 구간별 한도 차등)
 -- 전월 1일~말일 기준, 결제일 무관
 -- ─────────────────────────────────────────────
-INSERT INTO card (id, issuer, name, perf_period_type, billing_close_day, monthly_cap, is_demo)
+INSERT INTO card (id, issuer, name, perf_period_type, billing_offset_days, monthly_cap, is_demo)
 VALUES (1, '넉넉카드', 'NOKKNOK A (계단형)', 'MONTH_START', NULL, 50000, true);
 
 -- 30만 이상 50만 미만
@@ -51,7 +51,7 @@ INSERT INTO card_exclusion (card_id, exclusion_type, target_kind, target_value, 
 -- 카드 B : 단일 조건형 (기준 하나, 고정 할인율)
 -- 청구 마감일 기준이므로 결제일 변경 시 실적 집계 기간이 달라진다
 -- ─────────────────────────────────────────────
-INSERT INTO card (id, issuer, name, perf_period_type, billing_close_day, monthly_cap, is_demo)
+INSERT INTO card (id, issuer, name, perf_period_type, billing_offset_days, monthly_cap, is_demo)
 VALUES (2, '넉넉카드', 'NOKKNOK B (단일 조건형)', 'BILLING_CYCLE', 14, 30000, true);
 
 INSERT INTO card_benefit_rule (card_id, perf_min, perf_max, category, discount_rate, category_cap, verified) VALUES
@@ -66,7 +66,7 @@ INSERT INTO card_exclusion (card_id, exclusion_type, target_kind, target_value, 
 -- 카드 C : 제외 항목 복잡형
 -- 할인율은 높지만 실적 제외 항목이 많아 조건 충족이 까다롭다
 -- ─────────────────────────────────────────────
-INSERT INTO card (id, issuer, name, perf_period_type, billing_close_day, monthly_cap, is_demo)
+INSERT INTO card (id, issuer, name, perf_period_type, billing_offset_days, monthly_cap, is_demo)
 VALUES (3, '넉넉카드', 'NOKKNOK C (제외 복잡형)', 'MONTH_START', NULL, 40000, true);
 
 INSERT INTO card_benefit_rule (card_id, perf_min, perf_max, category, discount_rate, category_cap, verified) VALUES

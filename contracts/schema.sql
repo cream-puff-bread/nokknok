@@ -48,12 +48,27 @@ CREATE TABLE card (
     issuer              VARCHAR(50)  NOT NULL,        -- 카드사명
     name                VARCHAR(100) NOT NULL,        -- 카드명
     perf_period_type    VARCHAR(20)  NOT NULL,        -- MONTH_START | BILLING_CYCLE
-    billing_close_day   SMALLINT,                     -- 청구 마감일. NULL이면 말일
+    -- 결제일에서 마감일을 역산할 때 쓰는 오프셋(일). BILLING_CYCLE 카드에서만
+    -- 쓰고, MONTH_START 카드는 결제일과 무관하게 전월 1일~말일을 보므로 이
+    -- 컬럼 자체가 의미가 없어 NULL이다(아래 chk_billing_offset).
+    billing_offset_days SMALLINT,
     monthly_cap         INTEGER,                      -- 월 통합 할인 한도(원). NULL이면 무제한
     source_url          TEXT,                         -- 상품 안내장 출처
     is_demo             BOOLEAN NOT NULL DEFAULT false, -- 시연용 가상 상품 여부
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    CONSTRAINT chk_billing_close_day CHECK (billing_close_day IS NULL OR billing_close_day BETWEEN 1 AND 28),
+    -- 오프셋은 결제일과 마감일 사이 간격이라 한 달 주기(28일) 안에 있어야
+    -- 정상이다. 29일 이상이면 두 달 넘게 벌어진 셈이라 청구 주기 간격으로
+    -- 보기 어렵다. 엔진이 마감일을 역산할 때도 같은 28일 범위로 모듈러
+    -- 연산을 하므로(월마다 존재 여부가 다른 29~31일을 피하는 것과 같은
+    -- 이유), 범위를 맞춰 둔다.
+    CONSTRAINT chk_billing_offset_range CHECK (billing_offset_days IS NULL OR billing_offset_days BETWEEN 1 AND 28),
+    -- BILLING_CYCLE 카드는 오프셋이 반드시 있어야 마감일을 역산할 수 있고,
+    -- MONTH_START 카드는 오프셋을 쓰지 않으므로 값이 있으면 오히려 어느
+    -- 쪽 계산 방식을 따라야 하는지 모호해진다. 둘 다 하나로 막는다.
+    CONSTRAINT chk_billing_offset CHECK (
+        (perf_period_type = 'BILLING_CYCLE' AND billing_offset_days IS NOT NULL)
+     OR (perf_period_type = 'MONTH_START'   AND billing_offset_days IS NULL)
+    ),
     CONSTRAINT chk_perf_period       CHECK (perf_period_type IN ('MONTH_START', 'BILLING_CYCLE'))
 );
 
