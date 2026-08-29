@@ -31,8 +31,15 @@ export function RouteResultPage({ personaId, onNavigateToPersonas }: RouteResult
   const [state, setState] = useState<RunState>({ status: 'idle' });
   const [slowPhase, setSlowPhase] = useState<SlowRequestPhase | null>(null);
 
+  // 검증을 여기 한 곳에 둔다. submit은 폼 제출이라 자연히 이 검증을
+  // 거치지만, onRetry는 오류 화면에서 버튼 하나로 바로 이 함수를
+  // 부르므로 여기서 막지 않으면 오류 상태에서 입력을 지운 채 재시도할
+  // 때 amount=0 같은 값이 그대로 나가 새 422를 만든다.
   const run = useCallback(
     (amountValue: number, categoryValue: string) => {
+      if (!Number.isInteger(amountValue) || amountValue <= 0 || categoryValue.length === 0) {
+        return;
+      }
       setState({ status: 'running' });
       setSlowPhase(null);
       runRoute(personaId, amountValue, categoryValue, { onSlowRequest: setSlowPhase })
@@ -50,12 +57,7 @@ export function RouteResultPage({ personaId, onNavigateToPersonas }: RouteResult
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const amountValue = Number(amount);
-    const categoryValue = category.trim().toUpperCase();
-    if (!Number.isInteger(amountValue) || amountValue <= 0 || categoryValue.length === 0) {
-      return;
-    }
-    run(amountValue, categoryValue);
+    run(Number(amount), category.trim().toUpperCase());
   };
 
   const running = state.status === 'running';
