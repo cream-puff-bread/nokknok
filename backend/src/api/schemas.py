@@ -25,6 +25,11 @@ class CamelModel(BaseModel):
     )
 
 
+class SpendCategoryResponse(CamelModel):
+    code: str
+    label: str
+
+
 class PersonaResponse(CamelModel):
     id: int
     code: str
@@ -68,6 +73,7 @@ class ClauseRefResponse(CamelModel):
 class RouteCandidateResponse(CamelModel):
     card_id: int
     card_name: str
+    is_demo: bool
     pay_date: date
     payment_type: PaymentType
     installment_months: int
@@ -85,6 +91,7 @@ class RouteOptionResponse(RouteCandidateResponse):
 
 class NewCardSuggestionResponse(CamelModel):
     card_name: str
+    is_demo: bool
     expected_gain: int
     is_affiliate: bool
 

@@ -5,8 +5,9 @@
 조립만 한다.
 
 explanation은 런타임 LLM 프로파일(LLM_RUNTIME_TIMEOUT_BUDGET_MS)로
-생성한다. LLM_API_KEY가 비어 있으면 실패가 뻔한 네트워크 호출로 예산을
-낭비하지 않도록 아예 건너뛴다 — 두 경우 모두 explanation=None이 되고,
+생성한다. 클라이언트는 get_explanation_client 의존성이 만들고, LLM_API_KEY가
+비어 있으면 None을 돌려준다 — 실패가 뻔한 네트워크 호출로 예산을 낭비하지
+않기 위해서다. 호출 실패든 클라이언트 부재든 explanation=None이 되고,
 계산 결과(best 등)는 그대로 응답에 실린다(CLAUDE.md: LLM 실패 시에도
 계산 결과는 반드시 응답에 포함된다).
 """
@@ -23,7 +24,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from src.adapter.factory import SourceKind, build_provider
-from src.api.deps import get_db_session
+from src.api.deps import get_db_session, get_explanation_client
 from src.api.explain import generate_explanation
 from src.api.schemas import (
     ClauseRefResponse,
@@ -34,9 +35,8 @@ from src.api.schemas import (
     RouteRequest,
     RouteResponse,
 )
-from src.common.config import get_settings
 from src.common.exceptions import InvalidAmountError, InvalidCategoryError
-from src.common.llm import LlmClient, runtime_profile
+from src.common.llm import LlmClient
 from src.common.logging import get_logger
 from src.engine.route import RouteCandidate, evaluate_route
 from src.repository import card as card_repo
@@ -49,6 +49,7 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["route"])
 
 SessionDep = Annotated[Session, Depends(get_db_session)]
+LlmDep = Annotated[LlmClient | None, Depends(get_explanation_client)]
 
 _T = TypeVar("_T")
 
@@ -65,7 +66,7 @@ def _candidate_response(candidate: RouteCandidate) -> RouteCandidateResponse:
 
 
 @router.post("/route", response_model=RouteResponse, summary="결제 라우팅 최적화")
-def route_payment(session: SessionDep, body: RouteRequest) -> RouteResponse:
+def route_payment(session: SessionDep, llm: LlmDep, body: RouteRequest) -> RouteResponse:
     if body.amount <= 0:
         raise InvalidAmountError(body.amount)
 
@@ -116,11 +117,10 @@ def route_payment(session: SessionDep, body: RouteRequest) -> RouteResponse:
         else None
     )
 
-    settings = get_settings()
     explanation = None
-    if settings.llm_api_key:
+    if llm is not None:
         explanation = generate_explanation(
-            LlmClient(runtime_profile(settings)),
+            llm,
             result.best,
             best_rule,
             clause,
@@ -128,7 +128,7 @@ def route_payment(session: SessionDep, body: RouteRequest) -> RouteResponse:
             body.amount,
         )
     else:
-        logger.info("LLM_API_KEY 없음 — explanation 생성을 건너뜁니다")
+        logger.info("LLM 클라이언트 없음 — explanation 생성을 건너뜁니다")
 
     logger.info(
         "라우팅 판정 persona_id=%d best_card=%d discount=%d elapsed_ms=%d",
@@ -158,6 +158,7 @@ def route_payment(session: SessionDep, body: RouteRequest) -> RouteResponse:
         new_card_suggestion=(
             NewCardSuggestionResponse(
                 card_name=result.new_card_suggestion.card_name,
+                is_demo=result.new_card_suggestion.is_demo,
                 expected_gain=result.new_card_suggestion.expected_gain,
                 is_affiliate=result.new_card_suggestion.is_affiliate,
             )

@@ -40,6 +40,11 @@ class RouteCandidate:
 
     card_id: int
     card_name: str
+    # 실제 카드 상품이 아닌 시연용 가상 상품임을 화면에 표시하기 위한 값이다
+    # (schema.sql card.is_demo, contracts/ui-system.md "시연용 가상 카드에는
+    # 반드시 뱃지를 표시한다"). 계산에는 쓰이지 않는다 — 화면이 지어낼 수 없는
+    # 값이라 계산 결과와 같은 경로로 실어 보낸다.
+    is_demo: bool
     pay_date: date
     payment_type: str
     installment_months: int
@@ -62,6 +67,7 @@ class NewCardSuggestion:
     """contracts/api-spec.yaml의 newCardSuggestion과 필드가 같아야 한다."""
 
     card_name: str
+    is_demo: bool
     expected_gain: int
     is_affiliate: bool
 
@@ -138,7 +144,10 @@ def suggest_new_card(
         if gain > best_gain:
             best_gain = gain
             best = NewCardSuggestion(
-                card_name=card.name, expected_gain=gain, is_affiliate=False
+                card_name=card.name,
+                is_demo=card.is_demo,
+                expected_gain=gain,
+                is_affiliate=False,
             )
 
     return best
@@ -201,6 +210,7 @@ def evaluate_route(
             RouteCandidate(
                 card_id=card.id,
                 card_name=owned.name,
+                is_demo=card.is_demo,
                 pay_date=as_of,
                 payment_type=ASSUMED_PAYMENT_TYPE,
                 installment_months=0,

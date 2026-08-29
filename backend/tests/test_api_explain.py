@@ -38,6 +38,7 @@ def _candidate(**overrides) -> RouteCandidate:
     base = dict(
         card_id=1,
         card_name="테스트카드",
+        is_demo=True,
         pay_date=date(2026, 8, 25),
         payment_type="LUMP",
         installment_months=0,
