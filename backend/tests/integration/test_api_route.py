@@ -53,13 +53,7 @@ class TestRouteHappyPath:
 
     def test_explanation은_LLM_키_유무에_따라_null_또는_문자열이다(self, client: TestClient):
         # CLAUDE.md: LLM 실패 시에도 계산 결과는 반드시 응답에 포함된다.
-        #
-        # LLM_API_KEY 유무로 분기해야 한다 — 이전에는 항상 null만 확인했는데,
-        # 그건 "LLM 미연결"이 아니라 "이 로컬 환경에 키가 없어서 우연히
-        # null"인 상태였다. 실제 키가 있는 환경(시연 환경이 정확히 이렇다)
-        # 에서는 explanation이 문자열로 나와야 정상인데, 그 경우를 이
-        # 테스트가 실패로 판정하고 있었다 — 배포 조건에서만 깨지는,
-        # 방향이 거꾸로 된 테스트였다(하영·VANDAL, 2026-08-28 리뷰).
+        # 항상 null만 확인하면 키 있는 환경(실제 시연 환경)에서 오탐 실패한다.
         best = _route(client).json()["best"]
         if get_settings().llm_api_key:
             assert isinstance(best["explanation"], str)
