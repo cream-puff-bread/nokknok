@@ -3,6 +3,7 @@ import { Navigate, useNavigate, useParams } from 'react-router';
 
 import { BalanceDashboardPage } from './pages/BalanceDashboardPage';
 import { PersonaSelectPage } from './pages/PersonaSelectPage';
+import { RouteResultPage } from './pages/RouteResultPage';
 import { SimulationPage } from './pages/SimulationPage';
 import { TransactionUploadPage } from './pages/TransactionUploadPage';
 
@@ -67,6 +68,9 @@ const BalanceRoute = withPersonaId((personaId, onNavigateToPersonas) => (
 const SimulateRoute = withPersonaId((personaId, onNavigateToPersonas) => (
   <SimulationPage personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
 ));
+const RouteResultRoute = withPersonaId((personaId, onNavigateToPersonas) => (
+  <RouteResultPage personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
+));
 
 // 다음 사람은 이 배열 맨 끝에 한 줄만 추가한다. 같은 지점에 동시에 삽입하면
 // 병합 충돌이 나기 쉬우므로, 배열 중간에 끼워 넣지 않는다.
@@ -84,8 +88,7 @@ export const routes: RouteEntry[] = [
   { path: '/balance/:personaId', element: <BalanceRoute /> },
   { path: '/simulate/:personaId', element: <SimulateRoute /> },
 
-  // 아래는 팀원 담당 화면 자리 — 각자 여기에 한 줄씩 추가한다.
-  // { path: '/route/:personaId', element: <RouteResultRoute /> },  // @seohee-P: 결제 라우팅 결과, 근거 약관 표시
+  { path: '/route/:personaId', element: <RouteResultRoute /> },
 
   // 미매칭 경로 전부를 여기서 받는다(항상 배열 맨 끝에 둔다). SPA 폴백(#19)
   // 도입 이후로는 존재하지 않는 경로도 200으로 index.html을 받으므로,
