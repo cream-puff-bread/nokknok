@@ -26,9 +26,18 @@ interface PersonaSelectPageProps {
    * 래퍼가 useNavigate로 채워준다. PersonaNotFoundAction 참고.
    */
   onNavigateToPersonas?: () => void;
+  /**
+   * 하단 "직접 파일 업로드" 보조 링크를 눌렀을 때 호출된다. 업로드는
+   * 페르소나 선택과 무관한 별개 진입점이라 onSelect 흐름과 섞지 않는다.
+   */
+  onNavigateToUpload?: () => void;
 }
 
-export function PersonaSelectPage({ onSelect, onNavigateToPersonas }: PersonaSelectPageProps) {
+export function PersonaSelectPage({
+  onSelect,
+  onNavigateToPersonas,
+  onNavigateToUpload,
+}: PersonaSelectPageProps) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [selectedId, setSelectedId] = useState<number | null>(null);
   // 콜드스타트 안내 문구. client.ts가 5초·15초 문턱에서 onSlowRequest로
@@ -102,6 +111,18 @@ export function PersonaSelectPage({ onSelect, onNavigateToPersonas }: PersonaSel
               }}
             />
           ))}
+        </div>
+      )}
+
+      {onNavigateToUpload && (
+        <div className="border-t border-gray-200 pt-6 text-center">
+          <button
+            type="button"
+            onClick={onNavigateToUpload}
+            className="text-xs text-gray-500 underline hover:text-gray-700"
+          >
+            직접 파일 업로드
+          </button>
         </div>
       )}
     </section>

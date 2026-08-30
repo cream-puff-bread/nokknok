@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 
+import { AppLayout } from './components/AppLayout';
 import { BalanceDashboardPage } from './pages/BalanceDashboardPage';
 import { PersonaSelectPage } from './pages/PersonaSelectPage';
 import { RouteResultPage } from './pages/RouteResultPage';
@@ -16,24 +17,35 @@ export interface RouteEntry {
 // router에 결합하지 않기 위해서다). "선택 후 다음 화면으로 이동"은 이 래퍼가
 // useNavigate로 담당한다.
 //
-// personaId를 다음 화면에 어떻게 넘길지(URL 파라미터 vs 공유 상태)는 아직
-// 팀 합의 전이다 — 일단 URL 파라미터로 둔다. 합의되면 이 래퍼만 고치면 된다.
+// 페르소나를 고른 다음 목적지는 업로드가 아니라 가용잔고다 — 업로드는
+// 페르소나와 무관한 별개 진입점이라 아래 onNavigateToUpload로 따로 뺐다.
 function PersonaSelectRoute() {
   const navigate = useNavigate();
   return (
-    <PersonaSelectPage
-      onSelect={(persona) => navigate(`/upload/${persona.id}`)}
-      onNavigateToPersonas={() => navigate('/personas')}
-    />
+    <AppLayout>
+      <PersonaSelectPage
+        onSelect={(persona) => navigate(`/balance/${persona.id}`)}
+        onNavigateToPersonas={() => navigate('/personas')}
+        onNavigateToUpload={() => navigate('/upload')}
+      />
+    </AppLayout>
   );
 }
 
 // TransactionUploadPage도 PersonaSelectRoute와 같은 이유로 래퍼를 둔다 —
 // PERSONA_NOT_FOUND의 "페르소나 선택으로" 버튼이 풀 리로드 대신 SPA 전환을
 // 쓰려면 useNavigate가 필요하고, 그걸 컴포넌트 안에 직접 넣지 않는다.
+//
+// 업로드는 personaId를 쓰지 않는다(컴포넌트가 useParams를 읽지 않음) — URL도
+// 그 사실을 반영해 /upload 하나로 둔다. personaId 종속 화면이 아니므로
+// AppLayout에도 personaId를 넘기지 않아 탭이 뜨지 않는다.
 function TransactionUploadRoute() {
   const navigate = useNavigate();
-  return <TransactionUploadPage onNavigateToPersonas={() => navigate('/personas')} />;
+  return (
+    <AppLayout>
+      <TransactionUploadPage onNavigateToPersonas={() => navigate('/personas')} />
+    </AppLayout>
+  );
 }
 
 // URL 파라미터는 문자열이라 숫자로 바꾸는 곳이 필요하다. 화면이 직접 하면
@@ -55,7 +67,7 @@ function withPersonaId(
     if (!Number.isInteger(parsed) || parsed <= 0) {
       return <Navigate to="/personas" replace />;
     }
-    return render(parsed, () => navigate('/personas'));
+    return <AppLayout personaId={parsed}>{render(parsed, () => navigate('/personas'))}</AppLayout>;
   };
 }
 
@@ -80,10 +92,9 @@ export const routes: RouteEntry[] = [
   // replace를 써서 뒤로가기에서 / ↔ /personas 루프가 안 생기게 한다.
   { path: '/', element: <Navigate to="/personas" replace /> },
   { path: '/personas', element: <PersonaSelectRoute /> },
-  // TransactionUploadPage는 아직 :personaId를 읽지 않는다(팀 합의 대기 —
-  // 위 PersonaSelectRoute 주석 참고). URL에는 실려 있으니, 합의되면
-  // useParams로 꺼내 쓰면 된다.
-  { path: '/upload/:personaId', element: <TransactionUploadRoute /> },
+  // 업로드는 페르소나와 무관한 별개 진입점이다(위 PersonaSelectRoute 주석
+  // 참고) — personaId를 URL에 싣지 않는다.
+  { path: '/upload', element: <TransactionUploadRoute /> },
 
   { path: '/balance/:personaId', element: <BalanceRoute /> },
   { path: '/simulate/:personaId', element: <SimulateRoute /> },
