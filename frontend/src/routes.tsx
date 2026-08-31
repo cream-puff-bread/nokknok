@@ -86,6 +86,9 @@ const RouteResultRoute = withPersonaId((personaId, onNavigateToPersonas) => (
 
 // 다음 사람은 이 배열 맨 끝에 한 줄만 추가한다. 같은 지점에 동시에 삽입하면
 // 병합 충돌이 나기 쉬우므로, 배열 중간에 끼워 넣지 않는다.
+//
+// 새 라우트는 element 를 <AppLayout> 으로 감싼다. personaId 종속 화면이면
+// <AppLayout personaId={...}> 로 넘겨 탭이 뜨게 한다.
 export const routes: RouteEntry[] = [
   // <Routes>는 매칭이 없으면 null을 렌더링한다. 배포 루트(/)가 그 상태로
   // 나가면 헤더만 뜨고 본문이 빈다 — 심사위원이 맨 처음 여는 주소다.
