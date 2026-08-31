@@ -11,14 +11,10 @@ interface RouteCandidateCardProps {
   highlight?: boolean;
 }
 
-// RouteCandidate·RouteOption 계약에 isDemo 필드가 없어 ui-system.md의
-// "시연용 가상 카드에는 반드시 뱃지 표시" 규칙을 이 화면에서는 지킬 수
-// 없다. 지금 카탈로그가 전부 시연용 카드이긴 하지만, 계약에 없는 값을
-// 프론트가 지어내면 실제 카드가 섞였을 때 조용히 틀린다 — 컬럼 추가는
-// 팀 논의 필요.
 export function RouteCandidateCard({ candidate, highlight = false }: RouteCandidateCardProps) {
   const {
     cardName,
+    isDemo,
     payDate,
     paymentType,
     installmentMonths,
@@ -38,7 +34,10 @@ export function RouteCandidateCard({ candidate, highlight = false }: RouteCandid
     >
       <div className="flex items-start justify-between gap-4 mb-4">
         <div>
-          <p className="text-lg font-semibold text-gray-900">{cardName}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-lg font-semibold text-gray-900">{cardName}</p>
+            {isDemo && <DemoBadge />}
+          </div>
           <p className="text-xs text-gray-500 mt-1">{formatDate(payDate)} 결제 예정</p>
         </div>
         <span
@@ -71,5 +70,16 @@ export function RouteCandidateCard({ candidate, highlight = false }: RouteCandid
         </div>
       </dl>
     </div>
+  );
+}
+
+// ui-system.md: "시연용 가상 카드에는 반드시 '시연용' 뱃지를 표시한다".
+// newCardSuggestion에도 같은 규칙이 적용돼(isDemo 필드가 동일한 의미) 이
+// 컴포넌트를 export해 RouteResultPage에서도 재사용한다.
+export function DemoBadge() {
+  return (
+    <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600">
+      시연용
+    </span>
   );
 }

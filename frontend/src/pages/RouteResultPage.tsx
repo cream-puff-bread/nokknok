@@ -1,5 +1,6 @@
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
+import { fetchCategories } from '../api/categories';
 import {
   ApiRequestError,
   SLOW_REQUEST_MESSAGE,
@@ -8,11 +9,16 @@ import {
 import { runRoute } from '../api/route';
 import { Button } from '../components/Button';
 import { ClauseList } from '../components/ClauseList';
+import { DemoBadge, RouteCandidateCard } from '../components/RouteCandidateCard';
 import { ErrorState } from '../components/ErrorState';
 import { PersonaNotFoundAction } from '../components/PersonaNotFoundAction';
-import { RouteCandidateCard } from '../components/RouteCandidateCard';
 import { Skeleton } from '../components/Skeleton';
-import { formatWon, type ApiErrorCode, type RouteResponse } from '../types/contract';
+import {
+  formatWon,
+  type ApiErrorCode,
+  type RouteResponse,
+  type SpendCategory,
+} from '../types/contract';
 
 type RunState =
   | { status: 'idle' }
@@ -28,8 +34,28 @@ interface RouteResultPageProps {
 export function RouteResultPage({ personaId, onNavigateToPersonas }: RouteResultPageProps) {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
+  const [categories, setCategories] = useState<SpendCategory[]>([]);
   const [state, setState] = useState<RunState>({ status: 'idle' });
   const [slowPhase, setSlowPhase] = useState<SlowRequestPhase | null>(null);
+
+  // spend_category는 DB 소유 값이라 화면이 지어내면 안 된다(frontend/README.md
+  // "카테고리 선택지는 GET /api/categories로 받는다"). 자유 입력으로 두면
+  // "온라인"처럼 그럴듯한 한글을 쳐서 INVALID_CATEGORY로 막히는 경우가
+  // 실제 시연 점검에서 나왔다(8/31 배포본 점검).
+  //
+  // 목록 조회가 실패해도 화면을 막지 않는다 — 그러면 결제 라우팅 자체를
+  // 아예 못 쓰게 되므로, 이 경우에만 예외적으로 자유 입력을 허용한다.
+  useEffect(() => {
+    let alive = true;
+    fetchCategories()
+      .then((result) => {
+        if (alive) setCategories(result);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // 검증을 여기 한 곳에 둔다. submit은 폼 제출이라 자연히 이 검증을
   // 거치지만, onRetry는 오류 화면에서 버튼 하나로 바로 이 함수를
@@ -92,15 +118,35 @@ export function RouteResultPage({ personaId, onNavigateToPersonas }: RouteResult
             />
           </label>
           <label className="flex-1 block">
-            <span className="text-xs text-gray-500 mb-1 block">카테고리 코드</span>
-            <input
-              type="text"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              disabled={running}
-              placeholder="예: ONLINE, DINING, TAX"
-              className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none"
-            />
+            <span className="text-xs text-gray-500 mb-1 block">카테고리</span>
+            {categories.length > 0 ? (
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                disabled={running}
+                className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none bg-white"
+              >
+                <option value="" disabled>
+                  선택하세요
+                </option>
+                {categories.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              // 목록 조회 실패 시에만 자유 입력으로 대체한다 — 계산 자체를
+              // 아예 못 하게 막는 것보다는 낫다.
+              <input
+                type="text"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                disabled={running}
+                placeholder="예: ONLINE, DINING, TAX"
+                className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none"
+              />
+            )}
           </label>
         </div>
         <Button type="submit" disabled={!canSubmit}>
@@ -190,6 +236,11 @@ function RouteResult({ result }: { result: RouteResponse }) {
           <p className="text-sm text-gray-900">
             {newCardSuggestion.cardName} 발급 시 {formatWon(newCardSuggestion.expectedGain)}{' '}
             더 받을 수 있습니다.
+            {newCardSuggestion.isDemo && (
+              <span className="ml-2">
+                <DemoBadge />
+              </span>
+            )}
             {newCardSuggestion.isAffiliate && (
               <span className="ml-2 inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700">
                 제휴
