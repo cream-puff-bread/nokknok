@@ -80,6 +80,11 @@ LLM 생성 실패 시 `explanation` 은 `null` 이지만 계산 결과는 정상
 `ONLINE → 온라인쇼핑` 대응표를 화면에 두지 않는다** — 두면 카테고리를 추가할 때
 고쳐야 할 곳이 DB 와 프론트 두 군데가 되고, 한 곳을 빠뜨리면 조용히 어긋난다.
 
+코드를 표기로 바꿔야 하면 `src/api/categories.ts` 의 `useCategoryLabels()` 를
+쓴다. 화면에 들어올 때 목록을 받아두고, 못 받아왔거나 모르는 코드가 오면 코드를
+그대로 돌려준다 — 라벨이 없다고 화면이 비면 안 된다. 선택지(드롭다운)가 필요하면
+같은 파일의 `fetchCategories()` 를 쓴다.
+
 ### isDemo 가 true 면 "시연용" 뱃지를 표시한다
 
 `RouteCandidate.isDemo` 와 `NewCardSuggestion.isDemo` 는 그 카드가 실제 상품이

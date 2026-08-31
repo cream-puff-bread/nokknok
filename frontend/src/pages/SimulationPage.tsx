@@ -5,6 +5,7 @@ import {
   SLOW_REQUEST_MESSAGE,
   type SlowRequestPhase,
 } from '../api/client';
+import { useCategoryLabels } from '../api/categories';
 import { MAX_QUERY_LENGTH, runSimulation } from '../api/simulate';
 import { BalanceTrendChart } from '../components/BalanceTrendChart';
 import { Button } from '../components/Button';
@@ -39,6 +40,9 @@ export function SimulationPage({
   const [query, setQuery] = useState('');
   const [state, setState] = useState<RunState>({ status: 'idle' });
   const [slowPhase, setSlowPhase] = useState<SlowRequestPhase | null>(null);
+  // 결과 컴포넌트 안에서 부르면 결과가 뜬 뒤에야 조회가 시작돼 코드가
+  // 라벨로 바뀌는 깜빡임이 보인다. 화면에 들어오는 순간 받아둔다.
+  const categoryLabel = useCategoryLabels();
 
   const run = useCallback(
     (trimmed: string) => {
@@ -123,7 +127,9 @@ export function SimulationPage({
           <ErrorState message={state.message} onRetry={() => run(query.trim())} />
         ))}
 
-      {state.status === 'done' && <SimulationResult result={state.result} />}
+      {state.status === 'done' && (
+        <SimulationResult result={state.result} categoryLabel={categoryLabel} />
+      )}
     </section>
   );
 }
@@ -166,7 +172,13 @@ function DeadPointNotice({
   );
 }
 
-function SimulationResult({ result }: { result: SimulationResponse }) {
+function SimulationResult({
+  result,
+  categoryLabel,
+}: {
+  result: SimulationResponse;
+  categoryLabel: (code: string) => string;
+}) {
   const { parsed, scenarios, deadPoint, forecastMeta } = result;
 
   return (
@@ -179,9 +191,10 @@ function SimulationResult({ result }: { result: SimulationResponse }) {
           {PAYMENT_TYPE_LABEL[parsed.paymentType]}
           {parsed.installmentMonths > 0 && ` ${parsed.installmentMonths}개월`}
         </p>
-        {/* 카테고리는 spend_category 코드다. 이름표는 DB에만 있고 API로 나오지
-            않아 코드를 그대로 보여준다. 화면에서 지어내면 마스터와 어긋난다. */}
-        <p className="text-xs text-gray-500 mt-1">분류 {parsed.category}</p>
+        {/* 이름표는 GET /api/categories 가 내려준다. 화면에서 지어내면
+            마스터와 어긋나므로 대응표를 두지 않는다. 목록을 못 받아오면
+            코드를 그대로 보여준다. */}
+        <p className="text-xs text-gray-500 mt-1">분류 {categoryLabel(parsed.category)}</p>
       </div>
 
       {deadPoint !== null ? (
