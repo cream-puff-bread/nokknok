@@ -58,9 +58,10 @@ class RouteRequest(CamelModel):
     persona_id: int
     amount: int
     category: str
-    # 엔진(src/engine/route.py)은 아직 이 값을 쓰지 않는다 — payDate 최적화는
-    # 미래 지출 예측이 필요한데 forecast 모듈이 없어 지금은 항상 오늘 날짜로
-    # 판정한다. 계약대로 받아두되 계산에는 반영하지 않는다는 걸 명시한다.
+    # 엔진(src/engine/route.py evaluate_route)이 "결제를 미루면 유리한지"
+    # 비교하는 데 쓴다 — 없으면 오늘 결제 하나만 본다. 미래 지출을
+    # 예측하지는 않는다: 마감일까지 이미 지난 부분의 실적만 확정으로
+    # 세고, 아직 안 지난 구간은 0원으로도 근거 없는 값으로도 채우지 않는다.
     due_date: date | None = None
 
 

@@ -104,6 +104,7 @@ def route_payment(session: SessionDep, llm: LlmDep, body: RouteRequest) -> Route
         amount=body.amount,
         category=body.category,
         as_of=date.today(),
+        due_date=body.due_date,
     )
     elapsed_ms = int((time.perf_counter() - started) * 1000)
 

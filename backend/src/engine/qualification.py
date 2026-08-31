@@ -199,3 +199,60 @@ def performance_period(
             raise ValueError("BILLING_CYCLE 카드는 billing_offset_days가 있어야 합니다")
         return billing_cycle_period(payment_day, as_of, billing_offset_days)
     raise ValueError(f"알 수 없는 실적 산정 방식: {perf_period_type}")
+
+
+def _next_month_end(year: int, month: int) -> date:
+    if month == 12:
+        first_of_next = date(year + 1, 1, 1)
+    else:
+        first_of_next = date(year, month + 1, 1)
+    return first_of_next - timedelta(days=1)
+
+
+def next_month_start_close(as_of: date) -> date:
+    """MONTH_START 카드의 다음 마감일(이번 달 말일).
+
+    결제를 미루는 후보를 만들 때 쓴다 — 이번 달 말일이 이미 지났으면
+    다음 달 말일을 반환한다(같은 날짜가 두 번 나오는 걸 막는다).
+    """
+    this_month_end = _next_month_end(as_of.year, as_of.month)
+    if this_month_end > as_of:
+        return this_month_end
+    if as_of.month == 12:
+        return _next_month_end(as_of.year + 1, 1)
+    return _next_month_end(as_of.year, as_of.month + 1)
+
+
+def next_billing_close(payment_day: int, as_of: date, offset_days: int) -> date:
+    """BILLING_CYCLE 카드의 다음 마감일. billing_cycle_period의 역방향이다 —
+
+    그쪽은 "가장 최근에 끝난 주기"(과거)를 찾고, 이건 "다음에 끝날 주기"
+    (미래)를 찾는다. 결제를 미뤄서 그 마감이 지난 뒤 결제하면 실적이
+    새로 집계된 기간을 적용받을 수 있다는 후보를 만들 때 쓴다.
+    """
+    close_day = ((payment_day - offset_days - 1) % 28) + 1
+    this_month_close = date(as_of.year, as_of.month, close_day)
+    if this_month_close > as_of:
+        return this_month_close
+    next_year, next_month = (
+        (as_of.year, as_of.month + 1) if as_of.month < 12 else (as_of.year + 1, 1)
+    )
+    return date(next_year, next_month, close_day)
+
+
+def next_close_date(
+    perf_period_type: str,
+    as_of: date,
+    payment_day: int | None = None,
+    billing_offset_days: int | None = None,
+) -> date:
+    """card.perf_period_type에 따라 다음 마감일을 고른다. performance_period와 짝이다."""
+    if perf_period_type == "MONTH_START":
+        return next_month_start_close(as_of)
+    if perf_period_type == "BILLING_CYCLE":
+        if payment_day is None:
+            raise ValueError("BILLING_CYCLE 카드는 payment_day가 있어야 합니다")
+        if billing_offset_days is None:
+            raise ValueError("BILLING_CYCLE 카드는 billing_offset_days가 있어야 합니다")
+        return next_billing_close(payment_day, as_of, billing_offset_days)
+    raise ValueError(f"알 수 없는 실적 산정 방식: {perf_period_type}")

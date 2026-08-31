@@ -115,10 +115,17 @@ class TestRouteHappyPath:
             assert row is not None
             assert row[0] == body["best"]["cardId"]
 
-    def test_보유_카드_수만큼_후보_총계가_잡힌다(self, client: TestClient):
-        # 페르소나 2(INSTALLMENT_HEAVY)는 카드 3장을 보유한다(personas.seed.sql).
+    def test_카드마다_결제방식_조합_수만큼_후보_총계가_잡힌다(self, client: TestClient):
+        # 페르소나 2(INSTALLMENT_HEAVY)는 카드 A/B/C를 보유한다(personas.seed.sql).
+        # dueDate가 없으면 결제일 조합은 "오늘" 하나뿐이라, 카드당 시도 조합 수는
+        # 결제방식 개수와 같다 — 무이자 할부가 BOTH 제외(실적·할인 모두)인
+        # 카드 A·B는 일시불만 시도해 1개씩, PERFORMANCE만 제외라 할인이
+        # 살아있는 카드 C는 일시불+무이자 2개를 시도한다: 1+1+2=4.
+        # 가지치기는 A·B에서 각 1개씩, 총 2개(data/cards.seed.sql로 확인).
         body = _route(client, personaId=2).json()
-        assert body["computeMeta"]["candidatesTotal"] == 3
+
+        assert body["computeMeta"]["candidatesTotal"] == 4
+        assert body["computeMeta"]["candidatesPruned"] == 2
 
 
 class TestRouteValidation:

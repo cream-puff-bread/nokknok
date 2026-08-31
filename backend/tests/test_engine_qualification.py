@@ -18,6 +18,9 @@ from src.engine.qualification import (
     compute_discount,
     minimum_qualifying_perf,
     month_start_period,
+    next_billing_close,
+    next_close_date,
+    next_month_start_close,
     performance_period,
     select_rule,
 )
@@ -245,3 +248,49 @@ class TestBillingCyclePeriod:
     def test_MONTH_START은_month_start_period와_동일하다(self):
         as_of = date(2026, 9, 20)
         assert performance_period("MONTH_START", as_of) == month_start_period(as_of)
+
+
+class TestNextCloseDate:
+    """결제를 미루는 후보(마감일 다음날)를 만들 때 쓰는 "다음 마감일" 계산.
+
+    billing_cycle_period/month_start_period가 "가장 최근에 끝난" 과거 기간을
+    찾는다면, 이건 반대로 "다음에 끝날" 미래 기간의 마감일을 찾는다.
+    """
+
+    def test_이번_달_말일이_아직_안_지났으면_그날이_다음_마감이다(self):
+        assert next_month_start_close(date(2026, 8, 25)) == date(2026, 8, 31)
+
+    def test_이번_달_말일이_이미_지났으면_다음_달_말일이다(self):
+        # 8/31 당일은 "아직 안 지남"이 아니라 "이미 그날"이라 다음 달로 넘어간다
+        # — as_of > this_month_end 조건과 대칭을 맞춘다.
+        assert next_month_start_close(date(2026, 8, 31)) == date(2026, 9, 30)
+
+    def test_12월_말일_다음은_내년_1월_말일이다(self):
+        assert next_month_start_close(date(2026, 12, 31)) == date(2027, 1, 31)
+
+    def test_이번_달_마감일이_아직_안_지났으면_그날이_다음_마감이다(self):
+        # payment_day=14, offset_days=14 -> close_day=28 (카드 B 실측값과 동일 공식)
+        assert next_billing_close(payment_day=14, as_of=date(2026, 8, 20), offset_days=14) == date(
+            2026, 8, 28
+        )
+
+    def test_이번_달_마감일이_이미_지났으면_다음_달이다(self):
+        assert next_billing_close(payment_day=14, as_of=date(2026, 8, 28), offset_days=14) == date(
+            2026, 9, 28
+        )
+
+    def test_12월_마감_다음은_내년_1월이다(self):
+        assert next_billing_close(payment_day=14, as_of=date(2026, 12, 28), offset_days=14) == date(
+            2027, 1, 28
+        )
+
+    def test_next_close_date가_perf_period_type으로_위임한다(self):
+        as_of = date(2026, 8, 20)
+        assert next_close_date("MONTH_START", as_of) == next_month_start_close(as_of)
+        assert next_close_date(
+            "BILLING_CYCLE", as_of, payment_day=14, billing_offset_days=14
+        ) == next_billing_close(14, as_of, 14)
+
+    def test_BILLING_CYCLE인데_payment_day가_없으면_에러(self):
+        with pytest.raises(ValueError, match="payment_day"):
+            next_close_date("BILLING_CYCLE", date(2026, 8, 20), billing_offset_days=14)

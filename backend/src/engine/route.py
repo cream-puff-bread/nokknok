@@ -12,7 +12,7 @@ DB·LLM을 모른다 — 호출부(src/api/)가 repository로 가져온 데이�
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from src.adapter.base import CardRef, Transaction
 from src.common.exceptions import NoVerifiedRuleError
@@ -20,18 +20,23 @@ from src.engine.qualification import (
     classify_exclusions,
     compute_discount,
     minimum_qualifying_perf,
+    next_close_date,
     performance_period,
     select_rule,
 )
 from src.repository.card import BenefitRule, Card, Exclusion
 
-# 첫 구현 범위: 신규 구매는 항상 일시불로 가정한다. 할부·무이자 조합까지
-# 탐색하려면 카드마다 결제방식별 실적/할인 결과를 각각 계산해야 하는데,
-# 무이자 할부는 세 카드 모두 실적·할인 중 하나 이상에서 제외 대상이라
-# (data/cards.seed.sql) 대부분의 경우 일시불이 유리하거나 동일하다.
-# 할부가 유리한 예외 케이스(무이자 구간 없이 할부만 우대하는 카드)가
-# 추가되면 이 가정을 재검토해야 한다.
-ASSUMED_PAYMENT_TYPE = "LUMP"
+# 탐색하는 결제방식 두 가지. 할부 개월 수(3개월/6개월 등)는 따로 조합에
+# 넣지 않는다 — compute_discount가 할인율에 개월 수를 쓰지 않으므로
+# 계산 결과가 완전히 같고, "일시불 vs 무이자할부" 구분만 결과를 가른다
+# (2026-08-29 하영님 스코프 확정).
+LUMP = "LUMP"
+INTEREST_FREE = "INTEREST_FREE"
+
+# 무이자 할부 후보에 표시할 개월 수. 위 이유로 discount 계산에는 영향이
+# 없는 표시값이라 아무 값이나 대표로 고정해도 된다 — 3/6개월 중 더 흔한
+# 쪽을 쓴다.
+INTEREST_FREE_INSTALLMENT_MONTHS = 6
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,7 +143,10 @@ def suggest_new_card(
 
         exclusions = exclusions_by_card.get(card_id, [])
         rule = select_rule(rules, perf=0, category=category)
-        flags = classify_exclusions(exclusions, category, ASSUMED_PAYMENT_TYPE)
+        # 신규 카드 제안은 "오늘 일시불로 첫 구매"라는 가장 단순한 기준으로
+        # 기대 이득을 보여준다 — 아직 만들지도 않은 카드의 결제방식·날짜
+        # 조합까지 탐색하는 건 과한 추정이다.
+        flags = classify_exclusions(exclusions, category, LUMP)
         gain = compute_discount(rule, amount, flags.discount_excluded, card.monthly_cap)
 
         if gain > best_gain:
@@ -153,6 +161,124 @@ def suggest_new_card(
     return best
 
 
+def _pay_date_candidates(
+    card: Card, owned: CardRef, as_of: date, due_date: date | None
+) -> list[date]:
+    """오늘 결제 vs 마감일 다음날 결제, 두 후보 날짜를 만든다.
+
+    due_date가 없으면 "미룬다"는 선택지 자체가 정의되지 않으므로 오늘
+    하나만 반환한다. 다음 마감일이 due_date보다 뒤라면(카드 B 시드처럼
+    28일 단위 주기에서 짧은 기한 안에 마감이 안 오는 경우) 그 후보는
+    아예 만들지 않는다 — "마감을 놓쳐서 못 미루는" 상태를 억지로 앞당기지
+    않는다.
+    """
+    candidates = [as_of]
+    if due_date is None:
+        return candidates
+    close = next_close_date(
+        card.perf_period_type,
+        as_of,
+        payment_day=owned.payment_day,
+        billing_offset_days=card.billing_offset_days,
+    )
+    delayed = close + timedelta(days=1)
+    if delayed <= due_date:
+        candidates.append(delayed)
+    return candidates
+
+
+def _evaluate_card(
+    card: Card,
+    owned: CardRef,
+    rules: list[BenefitRule],
+    exclusions: list[Exclusion],
+    transactions: list[Transaction],
+    amount: int,
+    category: str,
+    as_of: date,
+    due_date: date | None,
+) -> tuple[list[RouteCandidate], int, int]:
+    """카드 하나에 대해 (결제일 × 결제방식) 조합을 전부 평가한다.
+
+    반환값의 후보 리스트는 이 카드가 만들어낸 조합 전부다 — 최종적으로
+    하나만 골라 RouteResponse에 싣는 건 호출부(evaluate_route) 몫이다.
+    두 번째·세 번째 값은 각각 시도한 조합 수, 가지치기로 건너뛴 조합 수다.
+    """
+    payment_types = [LUMP]
+    interest_free_flags = classify_exclusions(exclusions, category, INTEREST_FREE)
+    # 무이자 할부가 실적·할인 모두 제외(BOTH)면 어떤 날짜와 짝지어도 결과가
+    # 전부 0원으로 같다 — 계산 없이도 결론을 알 수 있으므로 아예 평가하지
+    # 않는다(카드 A/B가 이 경우다). 카드 C처럼 실적만 제외(PERFORMANCE)면
+    # 할인이 살아있으므로 반드시 평가해야 한다 — "무이자=혜택 0원"으로
+    # 단순화하면 안 되는 이유가 이것이다(2026-08-29 하영님 확인).
+    both_excluded = interest_free_flags.performance_excluded and interest_free_flags.discount_excluded
+    if not both_excluded:
+        payment_types.append(INTEREST_FREE)
+
+    pay_dates = _pay_date_candidates(card, owned, as_of, due_date)
+    pruned = len(pay_dates) if both_excluded else 0
+    attempted = len(pay_dates) * len(payment_types)
+
+    rule_by_date: dict[date, BenefitRule | None] = {}
+    perf_by_date: dict[date, int] = {}
+    perf_required = minimum_qualifying_perf(rules, category) or 0
+
+    for pay_date in pay_dates:
+        period_start, period_end = performance_period(
+            card.perf_period_type,
+            pay_date,
+            payment_day=owned.payment_day,
+            billing_offset_days=card.billing_offset_days,
+        )
+        # period_end가 미래(오늘 이후)일 수 있다 — pay_date를 마감일
+        # 다음날로 미룬 후보는 "아직 지나지 않은 기간"을 참조하기 때문이다.
+        # 그 구간을 그대로 합산하면 아직 일어나지 않은 지출을 0원으로
+        # 취급해 실적이 체계적으로 과소 집계된다(2026-08-29 하영님 지적 —
+        # 미룬 후보만 항상 손해로 나오는 구조적 편향). 오늘까지 실제로
+        # 지난 부분만 더해 "이미 확정된 실적"만 센다.
+        counted_end = min(period_end, as_of)
+        perf_current = _card_performance(
+            transactions, card.id, exclusions, period_start, counted_end
+        )
+        perf_by_date[pay_date] = perf_current
+        rule_by_date[pay_date] = select_rule(rules, perf_current, category)
+
+    candidates: list[RouteCandidate] = []
+    for pay_date in pay_dates:
+        perf_current = perf_by_date[pay_date]
+        rule = rule_by_date[pay_date]
+        for payment_type in payment_types:
+            flags = classify_exclusions(exclusions, category, payment_type)
+            expected_discount = compute_discount(
+                rule, amount, flags.discount_excluded, card.monthly_cap
+            )
+            candidates.append(
+                RouteCandidate(
+                    card_id=card.id,
+                    card_name=owned.name,
+                    is_demo=card.is_demo,
+                    pay_date=pay_date,
+                    payment_type=payment_type,
+                    installment_months=(
+                        INTEREST_FREE_INSTALLMENT_MONTHS if payment_type == INTEREST_FREE else 0
+                    ),
+                    expected_discount=expected_discount,
+                    # 오늘까지 실적이 이미 기준을 넘었으면 확정이다 — 앞으로
+                    # 더 써도 줄어들지 않으므로 안전하게 true로 둔다. 아직
+                    # 못 넘었으면 false로 두되 "틀렸다"고 확정하지 않는다.
+                    # perfRequired - perfCurrent를 프론트가 그대로 보여주면
+                    # "마감까지 N원 더 쓰면 충족"이 된다(새 계약 필드 불필요,
+                    # 2026-08-29 하영님 제안 ②).
+                    perf_achieved=perf_current >= perf_required,
+                    perf_current=perf_current,
+                    perf_required=perf_required,
+                    rule_id=rule.id if rule is not None else None,
+                )
+            )
+
+    return candidates, attempted, pruned
+
+
 def evaluate_route(
     owned_cards: list[CardRef],
     cards_by_id: dict[int, Card],
@@ -162,8 +288,13 @@ def evaluate_route(
     amount: int,
     category: str,
     as_of: date,
+    due_date: date | None = None,
 ) -> RouteResult:
     """보유 카드를 전부 평가해 최적 결제 카드를 고른다.
+
+    카드마다 (오늘/마감일 다음날 결제) × (일시불/무이자할부) 조합을 만들어
+    평가하고, 그중 그 카드에 가장 유리한 조합 하나만 후보로 남긴다 —
+    RouteResponse는 카드당 한 행이라는 기존 형태를 그대로 유지한다.
 
     검수 완료 규칙이 하나도 없는 카드는 후보에서 제외한다(카드 단위 —
     다른 카테고리 규칙이 검수돼 있어도 전부 미검수면 제외). 제외 후
@@ -177,6 +308,8 @@ def evaluate_route(
     """
     candidates: list[RouteCandidate] = []
     excluded_unverified = 0
+    candidates_total = 0
+    candidates_pruned = 0
 
     for owned in owned_cards:
         card = cards_by_id.get(owned.card_id)
@@ -189,45 +322,22 @@ def evaluate_route(
             continue
 
         exclusions = exclusions_by_card.get(card.id, [])
-        period_start, period_end = performance_period(
-            card.perf_period_type,
-            as_of,
-            payment_day=owned.payment_day,
-            billing_offset_days=card.billing_offset_days,
+        card_candidates, attempted, pruned = _evaluate_card(
+            card, owned, rules, exclusions, transactions, amount, category, as_of, due_date
         )
-        perf_current = _card_performance(
-            transactions, card.id, exclusions, period_start, period_end
-        )
+        candidates_total += attempted
+        candidates_pruned += pruned
 
-        rule = select_rule(rules, perf_current, category)
-        flags = classify_exclusions(exclusions, category, ASSUMED_PAYMENT_TYPE)
-        expected_discount = compute_discount(
-            rule, amount, flags.discount_excluded, card.monthly_cap
-        )
-        perf_required = minimum_qualifying_perf(rules, category) or 0
-
-        candidates.append(
-            RouteCandidate(
-                card_id=card.id,
-                card_name=owned.name,
-                is_demo=card.is_demo,
-                pay_date=as_of,
-                payment_type=ASSUMED_PAYMENT_TYPE,
-                installment_months=0,
-                expected_discount=expected_discount,
-                perf_achieved=perf_current >= perf_required,
-                perf_current=perf_current,
-                perf_required=perf_required,
-                rule_id=rule.id if rule is not None else None,
-            )
-        )
+        # 이 카드가 만든 조합 중 가장 유리한 하나만 최종 후보로 남긴다.
+        # 동률이면 실적을 이미 채운 쪽, 그다음 더 이른 결제일을 우선한다 —
+        # "지금 당장 받는" 결과가 "마감까지 기다려야 하는" 결과보다 화면에서
+        # 더 신뢰할 수 있는 추천이다.
+        card_candidates.sort(key=lambda c: (-c.expected_discount, not c.perf_achieved, c.pay_date))
+        candidates.append(card_candidates[0])
 
     if not candidates:
         raise NoVerifiedRuleError(excluded_cards=excluded_unverified)
 
-    # 예상 할인액 내림차순. 동률이면 이미 실적을 채운 카드를 우선한다 —
-    # 할인액이 같다면 "지금 당장 받는" 카드가 "다음 달부터 받는" 카드보다
-    # 화면에서 더 신뢰할 수 있는 추천이다.
     candidates.sort(key=lambda c: (-c.expected_discount, not c.perf_achieved))
     best = candidates[0]
 
@@ -248,8 +358,8 @@ def evaluate_route(
         best=best,
         alternatives=candidates[1:],
         compute_meta=ComputeMeta(
-            candidates_total=len(owned_cards),
-            candidates_pruned=0,
+            candidates_total=candidates_total,
+            candidates_pruned=candidates_pruned,
             excluded_unverified_cards=excluded_unverified,
         ),
         new_card_suggestion=new_card_suggestion,
