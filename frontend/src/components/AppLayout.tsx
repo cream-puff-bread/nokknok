@@ -21,6 +21,7 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { key: 'balance', label: '가용잔고', to: (id) => `/balance/${id}` },
+  { key: 'cards', label: '내 카드', to: (id) => `/cards/${id}` },
   { key: 'simulate', label: '시뮬레이션', to: (id) => `/simulate/${id}` },
   { key: 'route', label: '결제 라우팅', to: (id) => `/route/${id}` },
 ];

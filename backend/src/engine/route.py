@@ -85,7 +85,7 @@ class RouteResult:
     new_card_suggestion: NewCardSuggestion | None = None
 
 
-def _card_performance(
+def card_performance(
     transactions: list[Transaction],
     card_id: int,
     exclusions: list[Exclusion],
@@ -93,6 +93,11 @@ def _card_performance(
     period_end: date,
 ) -> int:
     """카드 하나의 실적 기간 내 실적 인정 금액 합계.
+
+    보유 카드 화면(GET /api/cards)도 같은 숫자를 보여줘야 해서 공개한다.
+    API 계층이 따로 합산하면 라우팅 결과의 실적과 카드 화면의 실적이 다르게
+    나올 수 있는데, 같은 값을 두 곳에서 다르게 말하는 것이 이 서비스가 가장
+    하지 말아야 할 일이다(CLAUDE.md: 금액 계산은 엔진이 전담한다).
 
     같은 실적 기간이라도 카드마다 실적이 독립적이므로(persona_card 단위가
     아니라 card 단위 실적) 이 카드로 결제된 거래만 더한다. 무이자 할부처럼
@@ -237,7 +242,7 @@ def _evaluate_card(
         # 미룬 후보만 항상 손해로 나오는 구조적 편향). 오늘까지 실제로
         # 지난 부분만 더해 "이미 확정된 실적"만 센다.
         counted_end = min(period_end, as_of)
-        perf_current = _card_performance(
+        perf_current = card_performance(
             transactions, card.id, exclusions, period_start, counted_end
         )
         perf_by_date[pay_date] = perf_current

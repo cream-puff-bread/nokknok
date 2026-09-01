@@ -4,6 +4,7 @@ import { Navigate, useNavigate, useParams } from 'react-router';
 import { DEFAULT_PERSONA_ID } from './api/personas';
 import { AppLayout } from './components/AppLayout';
 import { BalanceDashboardPage } from './pages/BalanceDashboardPage';
+import { CardsPage } from './pages/CardsPage';
 import { PersonaSelectPage } from './pages/PersonaSelectPage';
 import { RouteResultPage } from './pages/RouteResultPage';
 import { SimulationPage } from './pages/SimulationPage';
@@ -81,6 +82,9 @@ const BalanceRoute = withPersonaId((personaId, onNavigateToPersonas) => (
     onNavigateToPersonas={onNavigateToPersonas}
   />
 ));
+const CardsRoute = withPersonaId((personaId, onNavigateToPersonas) => (
+  <CardsPage personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
+));
 const SimulateRoute = withPersonaId((personaId, onNavigateToPersonas) => (
   <SimulationPage personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
 ));
@@ -107,6 +111,7 @@ export const routes: RouteEntry[] = [
   { path: '/upload', element: <TransactionUploadRoute /> },
 
   { path: '/balance/:personaId', element: <BalanceRoute /> },
+  { path: '/cards/:personaId', element: <CardsRoute /> },
   { path: '/simulate/:personaId', element: <SimulateRoute /> },
 
   { path: '/route/:personaId', element: <RouteResultRoute /> },

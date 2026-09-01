@@ -57,6 +57,17 @@ def list_purchase_category_codes(session: Session) -> tuple[str, ...]:
     return tuple(c for c in list_category_codes(session) if c != WILDCARD_CATEGORY)
 
 
+def list_categories(session: Session) -> tuple[SpendCategory, ...]:
+    """마스터 전체를 라벨과 함께. 와일드카드(ALL)를 포함한다.
+
+    규칙을 다루는 쪽에서 쓴다 — card_benefit_rule.category 는 ALL 을 가질 수
+    있고, 보유 카드 화면은 그 규칙도 보여줘야 한다. 결제·질의용 목록은
+    아래 list_purchase_categories 를 쓴다.
+    """
+    rows = session.execute(_SQL_WITH_LABEL).all()
+    return tuple(SpendCategory(code=r[0], label=r[1]) for r in rows)
+
+
 def list_purchase_categories(session: Session) -> tuple[SpendCategory, ...]:
     """화면 선택지용 목록. 코드와 함께 한글 라벨을 돌려준다.
 

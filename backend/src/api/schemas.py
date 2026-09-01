@@ -30,6 +30,38 @@ class SpendCategoryResponse(CamelModel):
     label: str
 
 
+class CardBenefitResponse(CamelModel):
+    category: str
+    category_label: str
+    perf_min: int
+    perf_max: int | None = None
+    discount_rate: float
+    category_cap: int | None = None
+    active: bool
+
+
+class CardExclusionResponse(CamelModel):
+    exclusion_type: str
+    target_kind: str
+    target_value: str
+    target_label: str
+
+
+class OwnedCardResponse(CamelModel):
+    card_id: int
+    card_name: str
+    issuer: str
+    is_demo: bool
+    payment_day: int
+    perf_period_start: date
+    perf_period_end: date
+    perf_current: int
+    perf_next_threshold: int | None = None
+    monthly_cap: int | None = None
+    benefits: list[CardBenefitResponse] = []
+    exclusions: list[CardExclusionResponse] = []
+
+
 class PersonaResponse(CamelModel):
     id: int
     code: str

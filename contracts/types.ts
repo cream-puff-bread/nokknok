@@ -118,6 +118,61 @@ export interface SimulationResponse {
   forecastMeta: ForecastMeta;
 }
 
+/** 실적 구간별 혜택 한 줄. card_benefit_rule 의 검수 완료 행이다. */
+export interface CardBenefit {
+  /** spend_category 코드. 'ALL' 은 카테고리 전용 규칙이 없을 때의 폴백이다. */
+  category: string;
+  /** 화면 표기. 'ALL' 은 '전체'. */
+  categoryLabel: string;
+  /** 이 혜택이 열리는 최소 실적 */
+  perfMin: number;
+  /** 구간 상한. null 이면 그 위로 계속 적용된다. */
+  perfMax: number | null;
+  /** 0.10 = 10% */
+  discountRate: number;
+  /** 이 카테고리의 월 할인 한도. null 이면 카드 통합 한도만 적용된다. */
+  categoryCap: number | null;
+  /** 지금 실적이 이 구간에 있으면 true. 화면에서 강조한다. */
+  active: boolean;
+}
+
+/** 실적·할인에서 빠지는 항목. 카드사 앱이 알려주지 않는 부분이다. */
+export interface CardExclusion {
+  /** PERFORMANCE = 실적 미인정, DISCOUNT = 할인 제외, BOTH = 둘 다 */
+  exclusionType: 'PERFORMANCE' | 'DISCOUNT' | 'BOTH';
+  targetKind: 'CATEGORY' | 'MERCHANT' | 'PAYMENT_TYPE';
+  /** 원본 값. CATEGORY 면 spend_category 코드, PAYMENT_TYPE 이면 결제 방식이다. */
+  targetValue: string;
+  /** 화면 표기. 코드가 아니라 사람이 읽는 이름이다. */
+  targetLabel: string;
+}
+
+/**
+ * 보유 카드 한 장의 현재 상태. GET /api/cards 응답.
+ *
+ * 실적은 결제 라우팅과 같은 엔진 함수로 계산한다 — 같은 값을 두 화면이
+ * 다르게 말하면 안 된다.
+ */
+export interface OwnedCard {
+  cardId: number;
+  cardName: string;
+  issuer: string;
+  isDemo: boolean;
+  paymentDay: number;
+  /** 이번 실적 기간. 'YYYY-MM-DD' */
+  perfPeriodStart: string;
+  perfPeriodEnd: string;
+  /** 기간 시작부터 오늘까지 실적으로 인정된 금액 */
+  perfCurrent: number;
+  /** 혜택이 하나라도 열리는 최소 실적. 규칙이 없으면 null */
+  perfNextThreshold: number | null;
+  /** 카드 전체 월 할인 한도. null 이면 카드 단위 상한이 없다. */
+  monthlyCap: number | null;
+  /** 실적 구간 오름차순. 검수 완료 규칙만 담는다. */
+  benefits: CardBenefit[];
+  exclusions: CardExclusion[];
+}
+
 export interface ClauseRef {
   content: string;
   docName: string;

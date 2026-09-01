@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.api.cards import router as cards_router
 from src.api.categories import router as categories_router
 from src.api.errors import register_error_handlers
 from src.api.health import router as health_router
@@ -112,6 +113,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # 라우터보다 먼저 등록해도 되지만, 오류 형식이 엔드포인트 전체에
     # 적용된다는 점을 드러내려고 마지막에 함께 둔다.
+    app.include_router(cards_router)
     app.include_router(categories_router)
     app.include_router(health_router)
     app.include_router(personas_router)
