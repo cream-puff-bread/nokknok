@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { fetchBalance } from '../api/balance';
 import { useCategoryLabels } from '../api/categories';
@@ -70,21 +70,12 @@ export function HomePage({
   const [purchase, setPurchase] = useState<PurchaseState>({ status: 'idle' });
   const [purchaseSlow, setPurchaseSlow] = useState<SlowRequestPhase | null>(null);
   const categoryLabel = useCategoryLabels();
-  const receiptRef = useRef<HTMLDivElement | null>(null);
-  // 답이 나오면 모달로 앞에 띄운다. 닫으면 페이지에 그대로 남아서, 실수로
-  // 닫았다고 계산을 다시 하게 만들지 않는다.
+  // 답이 나오면 모달로 앞에 띄운다.
   const [dialogOpen, setDialogOpen] = useState(false);
 
   useEffect(() => {
     if (purchase.status === 'done') setDialogOpen(true);
   }, [purchase.status]);
-
-  // 모달을 닫은 뒤에는 페이지에 남은 답으로 스크롤을 옮긴다. 화면 맨 아래에서
-  // 물었는데 답이 위에 있으면 아무 일도 안 일어났다고 느낀다.
-  const closeDialog = () => {
-    setDialogOpen(false);
-    receiptRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
 
   const askPurchase = useCallback(
     (query: string) => {
@@ -204,19 +195,24 @@ export function HomePage({
 
       {purchase.status === 'done' && (
         <>
-          <ReceiptDialog open={dialogOpen} onClose={closeDialog}>
+          <ReceiptDialog open={dialogOpen} onClose={() => setDialogOpen(false)}>
             <ReceiptWithChart
               purchase={purchase}
               categoryLabel={categoryLabel}
             />
           </ReceiptDialog>
 
-          {/* 모달을 닫은 뒤에도 답은 페이지에 남는다. */}
+          {/* 답은 모달에만 둔다. 닫으면 대시보드로 돌아간다.
+              대신 다시 열 수 있게 해서, 실수로 닫았다고 4초를 다시 기다리게
+              하지는 않는다. */}
           {!dialogOpen && (
-            <div ref={receiptRef} className="scroll-mt-32">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">이 결제, 해도 될까요</h3>
-              <ReceiptWithChart purchase={purchase} categoryLabel={categoryLabel} />
-            </div>
+            <button
+              type="button"
+              onClick={() => setDialogOpen(true)}
+              className="text-sm text-blue-600 underline hover:text-blue-700"
+            >
+              방금 계산한 결과 다시 보기
+            </button>
           )}
         </>
       )}
