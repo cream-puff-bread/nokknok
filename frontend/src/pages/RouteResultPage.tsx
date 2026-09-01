@@ -34,7 +34,12 @@ interface RouteResultPageProps {
 export function RouteResultPage({ personaId, onNavigateToPersonas }: RouteResultPageProps) {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
-  const [categories, setCategories] = useState<SpendCategory[]>([]);
+  // null=조회 중, []=조회 실패, 목록=성공. []를 초기값으로 두면 "아직 응답
+  // 안 옴"과 "조회 실패"가 같은 값이 되어, 응답 오기 전 잠깐 자유 입력
+  // <input>이 떴다가 <select>로 바뀌는 순간 사용자가 그새 입력한 문자열이
+  // 코드값과 안 맞아 화면 표시("외식")와 실제 전송값("온라인")이 어긋나는
+  // 문제가 있었다(하영님 리뷰, 2026-08-31).
+  const [categories, setCategories] = useState<SpendCategory[] | null>(null);
   const [state, setState] = useState<RunState>({ status: 'idle' });
   const [slowPhase, setSlowPhase] = useState<SlowRequestPhase | null>(null);
 
@@ -51,7 +56,9 @@ export function RouteResultPage({ personaId, onNavigateToPersonas }: RouteResult
       .then((result) => {
         if (alive) setCategories(result);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (alive) setCategories([]);
+      });
     return () => {
       alive = false;
     };
@@ -119,7 +126,18 @@ export function RouteResultPage({ personaId, onNavigateToPersonas }: RouteResult
           </label>
           <label className="flex-1 block">
             <span className="text-xs text-gray-500 mb-1 block">카테고리</span>
-            {categories.length > 0 ? (
+            {categories === null ? (
+              // 조회 중. 자유 입력으로 잘못 폴백하면(과거 버그) 그 사이 입력한
+              // 문자열이 응답 도착 후 <select>로 바뀔 때 코드값과 안 맞아
+              // 화면 표시와 실제 전송값이 어긋난다 — 그래서 조회 완료 전까지는
+              // select 자체를 비활성화해 아무 값도 못 고르게 막는다.
+              <select
+                disabled
+                className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm outline-none bg-white text-gray-400"
+              >
+                <option>불러오는 중…</option>
+              </select>
+            ) : categories.length > 0 ? (
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
@@ -136,8 +154,8 @@ export function RouteResultPage({ personaId, onNavigateToPersonas }: RouteResult
                 ))}
               </select>
             ) : (
-              // 목록 조회 실패 시에만 자유 입력으로 대체한다 — 계산 자체를
-              // 아예 못 하게 막는 것보다는 낫다.
+              // 목록 조회가 실제로 실패했을 때만(빈 배열 확정) 자유 입력으로
+              // 대체한다 — 계산 자체를 아예 못 하게 막는 것보다는 낫다.
               <input
                 type="text"
                 value={category}
