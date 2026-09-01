@@ -1,16 +1,10 @@
-import { useMemo, type ReactElement } from 'react';
-import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
+import type { ReactElement } from 'react';
+import { Navigate, useNavigate, useParams } from 'react-router';
 
 import { DEFAULT_PERSONA_ID } from './api/personas';
 import { AppLayout } from './components/AppLayout';
-import type { ParsedQuery, PaymentType } from './types/contract';
-
-const PAYMENT_TYPES: PaymentType[] = ['LUMP', 'INSTALLMENT', 'INTEREST_FREE'];
-import { BalanceDashboardPage } from './pages/BalanceDashboardPage';
-import { CardsPage } from './pages/CardsPage';
+import { HomePage } from './pages/HomePage';
 import { PersonaSelectPage } from './pages/PersonaSelectPage';
-import { RouteResultPage } from './pages/RouteResultPage';
-import { SimulationPage } from './pages/SimulationPage';
 import { TransactionUploadPage } from './pages/TransactionUploadPage';
 
 export interface RouteEntry {
@@ -79,65 +73,18 @@ function withPersonaId(
   };
 }
 
-const BalanceRoute = withPersonaId((personaId, onNavigateToPersonas) => (
-  <BalanceDashboardPage
-    personaId={personaId}
-    onNavigateToPersonas={onNavigateToPersonas}
-  />
-));
-const CardsRoute = withPersonaId((personaId, onNavigateToPersonas) => (
-  <CardsPage personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
+const HomeRoute = withPersonaId((personaId, onNavigateToPersonas) => (
+  <HomePage personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
 ));
 
-// 결제 라우팅에서 넘어온 구매는 URL 쿼리로 싣는다. 공유 상태를 쓰면 새로고침과
-// 딥링크에서 사라지는데, personaId 를 URL 에 두기로 한 것과 같은 이유로 주소에
-// 남긴다. 값이 하나라도 모자라거나 형식이 틀리면 그냥 무시하고 평소의 자연어
-// 입력 화면을 보여준다 — 잘못된 주소 때문에 화면이 막히지 않게 한다.
-function useIncomingPurchase(): ParsedQuery | undefined {
-  const [params] = useSearchParams();
-  const amount = Number(params.get('amount'));
-  const months = Number(params.get('installmentMonths') ?? '0');
-  const category = params.get('category');
-  const paymentType = params.get('paymentType');
-
-  return useMemo(() => {
-    if (!Number.isInteger(amount) || amount <= 0) return undefined;
-    if (!category || !paymentType) return undefined;
-    if (!PAYMENT_TYPES.includes(paymentType as PaymentType)) return undefined;
-    if (!Number.isInteger(months) || months < 0) return undefined;
-    return {
-      amount,
-      category,
-      paymentType: paymentType as PaymentType,
-      installmentMonths: months,
-    };
-    // params 객체는 렌더마다 새 참조라 원시값으로 의존성을 건다.
-  }, [amount, category, paymentType, months]);
+// 탭을 없애면서 화면별 주소가 사라졌다. 이미 공유된 주소를 404 로 만들지 않고
+// 같은 페르소나의 홈으로 넘긴다.
+function LegacyRedirect() {
+  const { personaId } = useParams();
+  const parsed = Number(personaId);
+  const target = Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_PERSONA_ID;
+  return <Navigate to={`/balance/${target}`} replace />;
 }
-
-const SimulateRoute = withPersonaId((personaId, onNavigateToPersonas) => (
-  <SimulateScreen personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
-));
-
-function SimulateScreen({
-  personaId,
-  onNavigateToPersonas,
-}: {
-  personaId: number;
-  onNavigateToPersonas: () => void;
-}) {
-  return (
-    <SimulationPage
-      personaId={personaId}
-      onNavigateToPersonas={onNavigateToPersonas}
-      incomingPurchase={useIncomingPurchase()}
-    />
-  );
-}
-
-const RouteResultRoute = withPersonaId((personaId, onNavigateToPersonas) => (
-  <RouteResultPage personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
-));
 
 // 다음 사람은 이 배열 맨 끝에 한 줄만 추가한다. 같은 지점에 동시에 삽입하면
 // 병합 충돌이 나기 쉬우므로, 배열 중간에 끼워 넣지 않는다.
@@ -157,11 +104,12 @@ export const routes: RouteEntry[] = [
   // 참고) — personaId를 URL에 싣지 않는다.
   { path: '/upload', element: <TransactionUploadRoute /> },
 
-  { path: '/balance/:personaId', element: <BalanceRoute /> },
-  { path: '/cards/:personaId', element: <CardsRoute /> },
-  { path: '/simulate/:personaId', element: <SimulateRoute /> },
-
-  { path: '/route/:personaId', element: <RouteResultRoute /> },
+  // 한 화면으로 합쳤다. 잔고·카드·질문·답이 전부 여기 있다.
+  { path: '/balance/:personaId', element: <HomeRoute /> },
+  // 옛 주소는 홈으로 보낸다 — 공유된 링크나 북마크가 깨지지 않게 한다.
+  { path: '/cards/:personaId', element: <LegacyRedirect /> },
+  { path: '/simulate/:personaId', element: <LegacyRedirect /> },
+  { path: '/route/:personaId', element: <LegacyRedirect /> },
 
   // 미매칭 경로도 사례 선택이 아니라 대시보드로 보낸다 — 위 '/' 와 같은 이유다.
   // 미매칭 경로 전부를 여기서 받는다(항상 배열 맨 끝에 둔다). SPA 폴백(#19)

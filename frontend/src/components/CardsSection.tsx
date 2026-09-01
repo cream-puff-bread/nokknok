@@ -6,11 +6,11 @@ import {
   SLOW_REQUEST_MESSAGE,
   type SlowRequestPhase,
 } from '../api/client';
-import { CardDeck } from '../components/CardDeck';
-import { EmptyState } from '../components/EmptyState';
-import { ErrorState } from '../components/ErrorState';
-import { PersonaNotFoundAction } from '../components/PersonaNotFoundAction';
-import { Skeleton } from '../components/Skeleton';
+import { CardDeck } from './CardDeck';
+import { EmptyState } from './EmptyState';
+import { ErrorState } from './ErrorState';
+import { PersonaNotFoundAction } from './PersonaNotFoundAction';
+import { Skeleton } from './Skeleton';
 import {
   formatDate,
   formatWon,
@@ -25,15 +25,25 @@ type LoadState =
   | { status: 'error'; message: string; code?: ApiErrorCode }
   | { status: 'loaded'; cards: OwnedCard[] };
 
-interface CardsPageProps {
+interface CardsSectionProps {
   personaId: number;
   onNavigateToPersonas?: () => void;
 }
 
-export function CardsPage({ personaId, onNavigateToPersonas }: CardsPageProps) {
+/**
+ * 보유 카드 덱과 선택한 카드의 상세.
+ *
+ * 한 화면에 잔고·카드·질문을 모두 올리기 위해 페이지가 아니라 섹션으로 둔다.
+ * 자기 데이터는 스스로 불러온다 — 상위가 조립만 하고 조회까지 떠맡지 않는다.
+ */
+export function CardsSection({ personaId, onNavigateToPersonas }: CardsSectionProps) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [slowPhase, setSlowPhase] = useState<SlowRequestPhase | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  // 덱은 늘 한 장을 가운데 세우지만 상세는 눌러야 열린다. 한 화면에 잔고·
+  // 카드·질문·답이 다 올라가는데 9행짜리 혜택표를 처음부터 펴 두면 그것만으로
+  // 화면 절반을 먹는다. 마우스를 올리면 실적까지는 보이므로 훑는 데 지장 없다.
+  const [expanded, setExpanded] = useState(false);
 
   const load = useCallback(() => {
     setState({ status: 'loading' });
@@ -41,8 +51,6 @@ export function CardsPage({ personaId, onNavigateToPersonas }: CardsPageProps) {
     fetchOwnedCards(personaId, { onSlowRequest: setSlowPhase })
       .then((cards) => {
         setState({ status: 'loaded', cards });
-        // 처음에는 첫 카드를 펴 둔다. 아무것도 안 열려 있으면 화면이 비어
-        // 보이고, 무엇을 눌러야 하는지도 알기 어렵다.
         setSelectedId(cards[0]?.cardId ?? null);
       })
       .catch((err: unknown) => {
@@ -66,7 +74,7 @@ export function CardsPage({ personaId, onNavigateToPersonas }: CardsPageProps) {
       <div>
         <h3 className="text-lg font-semibold text-gray-900 mb-1">내 카드</h3>
         <p className="text-sm text-gray-500">
-          카드에 마우스를 올리면 이번 실적이, 카드를 고르면 혜택 구간과 제외 항목이 펼쳐집니다.
+          카드에 마우스를 올리면 이번 실적이, 카드를 누르면 혜택 구간과 제외 항목이 펼쳐집니다.
         </p>
       </div>
 
@@ -96,10 +104,13 @@ export function CardsPage({ personaId, onNavigateToPersonas }: CardsPageProps) {
             <CardDeck
               cards={state.cards}
               selectedId={selected?.cardId ?? state.cards[0].cardId}
-              onSelect={setSelectedId}
+              onSelect={(cardId) => {
+                setSelectedId(cardId);
+                setExpanded(true);
+              }}
             />
 
-            {selected && <CardDetail card={selected} />}
+            {selected && expanded && <CardDetail card={selected} />}
           </>
         ))}
     </section>

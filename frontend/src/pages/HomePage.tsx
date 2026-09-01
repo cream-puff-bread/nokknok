@@ -10,6 +10,8 @@ import {
   type SlowRequestPhase,
 } from '../api/client';
 import { EmptyState } from '../components/EmptyState';
+import { BalanceTrendChart } from '../components/BalanceTrendChart';
+import { CardsSection } from '../components/CardsSection';
 import { PurchaseBar } from '../components/PurchaseBar';
 import { Receipt } from '../components/Receipt';
 import { ErrorState } from '../components/ErrorState';
@@ -20,10 +22,10 @@ import {
   formatWon,
   type ApiErrorCode,
   type BalanceResponse,
-  type DeadPoint,
   type FixedExpense,
   type ParsedQuery,
   type RouteResponse,
+  type SimulationResponse,
 } from '../types/contract';
 
 /**
@@ -40,7 +42,9 @@ type PurchaseState =
   | {
       status: 'done';
       purchase: ParsedQuery;
-      deadPoint: DeadPoint | null;
+      // 데드포인트만 들고 있으면 영수증은 그릴 수 있어도 6개월 추이는 못
+      // 그린다. 한 화면에서 답을 끝내려면 시나리오까지 필요하다.
+      simulation: SimulationResponse;
       route: RouteResponse | null;
       routeLoading: boolean;
     }
@@ -51,15 +55,15 @@ type LoadState =
   | { status: 'error'; message: string; code?: ApiErrorCode }
   | { status: 'loaded'; balance: BalanceResponse };
 
-interface BalanceDashboardPageProps {
+interface HomePageProps {
   personaId: number;
   onNavigateToPersonas?: () => void;
 }
 
-export function BalanceDashboardPage({
+export function HomePage({
   personaId,
   onNavigateToPersonas,
-}: BalanceDashboardPageProps) {
+}: HomePageProps) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [slowPhase, setSlowPhase] = useState<SlowRequestPhase | null>(null);
   const [purchase, setPurchase] = useState<PurchaseState>({ status: 'idle' });
@@ -83,7 +87,7 @@ export function BalanceDashboardPage({
           setPurchase({
             status: 'done',
             purchase: simulation.parsed,
-            deadPoint: simulation.deadPoint,
+            simulation,
             route: null,
             routeLoading: true,
           });
@@ -200,11 +204,20 @@ export function BalanceDashboardPage({
             categoryLabel={categoryLabel}
             route={purchase.route}
             routeLoading={purchase.routeLoading}
-            deadPoint={purchase.deadPoint}
+            deadPoint={purchase.simulation.deadPoint}
             forecastLoaded
           />
+
+          <div className="mt-4">
+            <BalanceTrendChart
+              scenarios={purchase.simulation.scenarios}
+              deadPoint={purchase.simulation.deadPoint}
+            />
+          </div>
         </div>
       )}
+
+      <CardsSection personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
 
       <div>
         <h3 className="text-lg font-semibold text-gray-900 mb-1">확정 지출</h3>

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Link, NavLink, useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 
 import { loadPersonasOnce } from '../api/personas';
 import type { Persona } from '../types/contract';
@@ -12,19 +12,6 @@ interface AppLayoutProps {
   personaId?: number;
   children: ReactNode;
 }
-
-interface TabDef {
-  key: string;
-  label: string;
-  to: (personaId: number) => string;
-}
-
-const TABS: TabDef[] = [
-  { key: 'balance', label: '가용잔고', to: (id) => `/balance/${id}` },
-  { key: 'cards', label: '내 카드', to: (id) => `/cards/${id}` },
-  { key: 'simulate', label: '시뮬레이션', to: (id) => `/simulate/${id}` },
-  { key: 'route', label: '결제 라우팅', to: (id) => `/route/${id}` },
-];
 
 /**
  * 사례 전환. 계정 전환처럼 헤더 오른쪽에 둔다.
@@ -118,28 +105,6 @@ export function AppLayout({ personaId, children }: AppLayoutProps) {
           </div>
         </div>
 
-        {personaId !== undefined && (
-          <nav
-            aria-label="화면 전환"
-            className="max-w-5xl mx-auto px-4 md:px-8 flex gap-4 overflow-x-auto"
-          >
-            {TABS.map((tab) => (
-              <NavLink
-                key={tab.key}
-                to={tab.to(personaId)}
-                className={({ isActive }) =>
-                  `shrink-0 border-b-2 py-3 text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'border-blue-600 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-900'
-                  }`
-                }
-              >
-                {tab.label}
-              </NavLink>
-            ))}
-          </nav>
-        )}
       </header>
 
       <main className="max-w-5xl mx-auto px-4 md:px-8 py-8">{children}</main>
