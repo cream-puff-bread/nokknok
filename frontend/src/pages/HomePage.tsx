@@ -13,6 +13,7 @@ import { EmptyState } from '../components/EmptyState';
 import { BalanceTrendChart } from '../components/BalanceTrendChart';
 import { CardsSection } from '../components/CardsSection';
 import { PurchaseBar } from '../components/PurchaseBar';
+import { ReceiptDialog } from '../components/ReceiptDialog';
 import { Receipt } from '../components/Receipt';
 import { ErrorState } from '../components/ErrorState';
 import { PersonaNotFoundAction } from '../components/PersonaNotFoundAction';
@@ -70,13 +71,20 @@ export function HomePage({
   const [purchaseSlow, setPurchaseSlow] = useState<SlowRequestPhase | null>(null);
   const categoryLabel = useCategoryLabels();
   const receiptRef = useRef<HTMLDivElement | null>(null);
+  // 답이 나오면 모달로 앞에 띄운다. 닫으면 페이지에 그대로 남아서, 실수로
+  // 닫았다고 계산을 다시 하게 만들지 않는다.
+  const [dialogOpen, setDialogOpen] = useState(false);
 
-  // 입력은 화면 맨 아래에서 하는데 답은 위에 뜬다. 스크롤을 옮겨 주지 않으면
-  // 방금 누른 사람이 아무 일도 안 일어났다고 느낀다.
   useEffect(() => {
-    if (purchase.status !== 'done') return;
-    receiptRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (purchase.status === 'done') setDialogOpen(true);
   }, [purchase.status]);
+
+  // 모달을 닫은 뒤에는 페이지에 남은 답으로 스크롤을 옮긴다. 화면 맨 아래에서
+  // 물었는데 답이 위에 있으면 아무 일도 안 일어났다고 느낀다.
+  const closeDialog = () => {
+    setDialogOpen(false);
+    receiptRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const askPurchase = useCallback(
     (query: string) => {
@@ -195,26 +203,22 @@ export function HomePage({
       {purchase.status === 'error' && <ErrorState message={purchase.message} />}
 
       {purchase.status === 'done' && (
-        // 답은 잔고 바로 아래에 둔다. 목록 끝에 붙이면 바에 입력한 사람이
-        // 한참 아래로 내려가야 답을 본다.
-        <div ref={receiptRef} className="scroll-mt-32">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">이 결제, 해도 될까요</h3>
-          <Receipt
-            purchase={purchase.purchase}
-            categoryLabel={categoryLabel}
-            route={purchase.route}
-            routeLoading={purchase.routeLoading}
-            deadPoint={purchase.simulation.deadPoint}
-            forecastLoaded
-          />
-
-          <div className="mt-4">
-            <BalanceTrendChart
-              scenarios={purchase.simulation.scenarios}
-              deadPoint={purchase.simulation.deadPoint}
+        <>
+          <ReceiptDialog open={dialogOpen} onClose={closeDialog}>
+            <ReceiptWithChart
+              purchase={purchase}
+              categoryLabel={categoryLabel}
             />
-          </div>
-        </div>
+          </ReceiptDialog>
+
+          {/* 모달을 닫은 뒤에도 답은 페이지에 남는다. */}
+          {!dialogOpen && (
+            <div ref={receiptRef} className="scroll-mt-32">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">이 결제, 해도 될까요</h3>
+              <ReceiptWithChart purchase={purchase} categoryLabel={categoryLabel} />
+            </div>
+          )}
+        </>
       )}
 
       <CardsSection personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
@@ -265,5 +269,33 @@ function FixedExpenseRow({ expense }: { expense: FixedExpense }) {
         {formatWon(expense.amount)}
       </span>
     </li>
+  );
+}
+
+/** 영수증과 6개월 추이를 한 덩어리로. 모달과 페이지가 같은 것을 보여준다. */
+function ReceiptWithChart({
+  purchase,
+  categoryLabel,
+}: {
+  purchase: Extract<PurchaseState, { status: 'done' }>;
+  categoryLabel: (code: string) => string;
+}) {
+  return (
+    <>
+      <Receipt
+        purchase={purchase.purchase}
+        categoryLabel={categoryLabel}
+        route={purchase.route}
+        routeLoading={purchase.routeLoading}
+        deadPoint={purchase.simulation.deadPoint}
+        forecastLoaded
+      />
+      <div className="mt-4">
+        <BalanceTrendChart
+          scenarios={purchase.simulation.scenarios}
+          deadPoint={purchase.simulation.deadPoint}
+        />
+      </div>
+    </>
   );
 }
