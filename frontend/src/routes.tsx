@@ -136,37 +136,8 @@ function SimulateScreen({
 }
 
 const RouteResultRoute = withPersonaId((personaId, onNavigateToPersonas) => (
-  <RouteResultScreen personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
+  <RouteResultPage personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
 ));
-
-// 라우팅 결과 -> 시뮬레이션 이동. 화면은 값만 넘기고 어디로 갈지는 모른다
-// (PersonaSelectRoute 와 같은 이유로 래퍼가 useNavigate 를 맡는다).
-function RouteResultScreen({
-  personaId,
-  onNavigateToPersonas,
-}: {
-  personaId: number;
-  onNavigateToPersonas: () => void;
-}) {
-  const navigate = useNavigate();
-  return (
-    <RouteResultPage
-      personaId={personaId}
-      onNavigateToPersonas={onNavigateToPersonas}
-      onSimulate={(purchase) =>
-        navigate({
-          pathname: `/simulate/${personaId}`,
-          search: new URLSearchParams({
-            amount: String(purchase.amount),
-            category: purchase.category,
-            paymentType: purchase.paymentType,
-            installmentMonths: String(purchase.installmentMonths),
-          }).toString(),
-        })
-      }
-    />
-  );
-}
 
 // 다음 사람은 이 배열 맨 끝에 한 줄만 추가한다. 같은 지점에 동시에 삽입하면
 // 병합 충돌이 나기 쉬우므로, 배열 중간에 끼워 넣지 않는다.

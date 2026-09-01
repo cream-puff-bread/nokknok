@@ -7,6 +7,7 @@ import {
   type SlowRequestPhase,
 } from '../api/client';
 import { runRoute } from '../api/route';
+import { runSimulationForPurchase } from '../api/simulate';
 import { Button } from '../components/Button';
 import { ClauseList } from '../components/ClauseList';
 import { DemoBadge, RouteCandidateCard } from '../components/RouteCandidateCard';
@@ -15,11 +16,20 @@ import { PersonaNotFoundAction } from '../components/PersonaNotFoundAction';
 import { Skeleton } from '../components/Skeleton';
 import {
   formatWon,
+  formatWon as formatWonAmount,
+  SCENARIO_LABEL,
   type ApiErrorCode,
+  type DeadPoint,
   type ParsedQuery,
   type RouteResponse,
   type SpendCategory,
 } from '../types/contract';
+
+type ForecastState =
+  | { status: 'idle' }
+  | { status: 'running' }
+  | { status: 'done'; deadPoint: DeadPoint | null }
+  | { status: 'error'; message: string };
 
 type RunState =
   | { status: 'idle' }
@@ -30,22 +40,9 @@ type RunState =
 interface RouteResultPageProps {
   personaId: number;
   onNavigateToPersonas?: () => void;
-  /**
-   * 추천 결과를 그대로 현금흐름 시뮬레이션으로 넘긴다.
-   *
-   * "어느 카드로 얼마를 아끼나" 와 "그래서 6개월 뒤 잔고가 어떻게 되나" 는
-   * 원래 하나의 질문인데 화면이 둘로 나뉘어 있었다. 금액·카테고리·결제
-   * 방식을 그대로 넘기므로 이용자가 같은 내용을 다시 입력하지 않고, 서버도
-   * 자연어를 다시 해석하지 않는다.
-   */
-  onSimulate?: (purchase: ParsedQuery) => void;
 }
 
-export function RouteResultPage({
-  personaId,
-  onNavigateToPersonas,
-  onSimulate,
-}: RouteResultPageProps) {
+export function RouteResultPage({ personaId, onNavigateToPersonas }: RouteResultPageProps) {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
   // null=조회 중, []=조회 실패, 목록=성공. []를 초기값으로 두면 "아직 응답
@@ -54,6 +51,9 @@ export function RouteResultPage({
   // 코드값과 안 맞아 화면 표시("외식")와 실제 전송값("온라인")이 어긋나는
   // 문제가 있었다(하영님 리뷰, 2026-08-31).
   const [categories, setCategories] = useState<SpendCategory[] | null>(null);
+  // 잔고 답을 새 페이지로 넘기지 않고 이 자리에서 편다. 페이지가 통째로
+  // 바뀌면 방금 본 카드 추천이 화면에서 사라져 두 답을 머릿속에서 합쳐야 한다.
+  const [forecast, setForecast] = useState<ForecastState>({ status: 'idle' });
   const [state, setState] = useState<RunState>({ status: 'idle' });
   const [slowPhase, setSlowPhase] = useState<SlowRequestPhase | null>(null);
 
@@ -97,6 +97,20 @@ export function RouteResultPage({
             return;
           }
           setState({ status: 'error', message: '결제 라우팅을 계산하지 못했습니다.' });
+        });
+    },
+    [personaId],
+  );
+
+  const runForecast = useCallback(
+    (purchase: ParsedQuery) => {
+      setForecast({ status: 'running' });
+      runSimulationForPurchase(personaId, purchase)
+        .then((result) => setForecast({ status: 'done', deadPoint: result.deadPoint }))
+        .catch((err: unknown) => {
+          const message =
+            err instanceof ApiRequestError ? err.message : '잔고를 계산하지 못했습니다.';
+          setForecast({ status: 'error', message });
         });
     },
     [personaId],
@@ -209,17 +223,16 @@ export function RouteResultPage({
       {state.status === 'done' && (
         <RouteResult
           result={state.result}
-          onSimulate={
-            onSimulate &&
-            (() =>
-              onSimulate({
-                amount: amountValue,
-                category: category.trim().toUpperCase(),
-                // 추천받은 결제 방식을 그대로 넘긴다 — 이용자가 확인한 것이
-                // "이 카드로 이렇게 결제" 이므로 잔고도 그 조건으로 그린다.
-                paymentType: state.result.best.paymentType,
-                installmentMonths: state.result.best.installmentMonths,
-              }))
+          forecast={forecast}
+          onSimulate={() =>
+            runForecast({
+              amount: amountValue,
+              category: category.trim().toUpperCase(),
+              // 추천받은 결제 방식을 그대로 넘긴다 — 이용자가 확인한 것이
+              // "이 카드로 이렇게 결제" 이므로 잔고도 그 조건으로 그린다.
+              paymentType: state.result.best.paymentType,
+              installmentMonths: state.result.best.installmentMonths,
+            })
           }
         />
       )}
@@ -257,10 +270,12 @@ function RouteErrorDisplay({
 
 function RouteResult({
   result,
+  forecast,
   onSimulate,
 }: {
   result: RouteResponse;
-  onSimulate?: () => void;
+  forecast: ForecastState;
+  onSimulate: () => void;
 }) {
   const { best, alternatives, newCardSuggestion, computeMeta } = result;
 
@@ -281,11 +296,36 @@ function RouteResult({
         )}
         <ClauseList clauses={best.clauses} />
 
-        {onSimulate && (
+        {forecast.status === 'idle' && (
           <Button variant="secondary" onClick={onSimulate}>
             이 결제로 6개월 잔고 보기
           </Button>
         )}
+        {forecast.status === 'running' && <Skeleton className="h-5 w-64" />}
+        {forecast.status === 'error' && (
+          <p className="text-sm text-gray-500">{forecast.message}</p>
+        )}
+        {forecast.status === 'done' &&
+          (forecast.deadPoint ? (
+            // 할인만 보고 결제하면 놓치는 것을 여기서 잡는다.
+            <p className="text-sm text-red-600">
+              결제 후{' '}
+              <span className="font-semibold">{formatMonth(forecast.deadPoint.month)}</span>{' '}
+              잔고가{' '}
+              <span className="tabular-nums font-semibold">
+                {formatWonAmount(forecast.deadPoint.shortage)}
+              </span>{' '}
+              부족해집니다
+              <span className="text-gray-500">
+                {' '}
+                ({SCENARIO_LABEL[forecast.deadPoint.level]} 시나리오)
+              </span>
+            </p>
+          ) : (
+            <p className="text-sm text-emerald-600">
+              결제해도 6개월 안에 잔고가 마이너스로 가지 않습니다
+            </p>
+          ))}
       </div>
 
       {newCardSuggestion && (
@@ -326,4 +366,10 @@ function RouteResult({
       )}
     </div>
   );
+}
+
+/** '2026-09' 을 '9월' 로. 차트 축과 표기를 맞춘다(ui-system.md). */
+function formatMonth(month: string): string {
+  const parsed = Number(month.slice(5, 7));
+  return Number.isNaN(parsed) ? month : `${parsed}월`;
 }
