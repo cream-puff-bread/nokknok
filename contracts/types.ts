@@ -110,6 +110,29 @@ export interface ParsedQuery {
   category: string;
 }
 
+/**
+ * POST /api/simulate 요청.
+ *
+ * 두 진입 경로가 있다.
+ *
+ * - 이용자가 직접 물어보는 경우: `query` 만 보낸다. 서버가 LLM 으로 해석한다.
+ * - 결제 라우팅 결과에서 넘어오는 경우: `purchase` 를 보낸다. 금액·카테고리·결제
+ *   방식을 화면이 이미 정확히 알고 있으므로 LLM 을 태우지 않는다.
+ *
+ * 아는 값을 문장으로 만들어 다시 해석시키면 1.4초를 더 쓰고, 해석이 어긋나면
+ * 두 화면이 서로 다른 숫자를 말하게 된다 — 이 서비스가 가장 하지 말아야 할 일이다.
+ *
+ * 둘 중 하나는 반드시 있어야 하고, 둘 다 오면 `purchase` 가 이긴다.
+ * `purchase` 는 응답의 `parsed` 와 같은 타입이다 — 넘긴 값이 그대로 돌아온다.
+ */
+export interface SimulateRequest {
+  personaId: number;
+  /** 자연어 질의. purchase 가 없으면 필수다. */
+  query?: string;
+  /** 구조화된 구매 정보. 있으면 query 를 해석하지 않는다. */
+  purchase?: ParsedQuery;
+}
+
 export interface SimulationResponse {
   parsed: ParsedQuery;
   scenarios: Scenario[];

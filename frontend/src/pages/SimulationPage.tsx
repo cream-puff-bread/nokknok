@@ -1,4 +1,4 @@
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 
 import {
   ApiRequestError,
@@ -6,7 +6,11 @@ import {
   type SlowRequestPhase,
 } from '../api/client';
 import { useCategoryLabels } from '../api/categories';
-import { MAX_QUERY_LENGTH, runSimulation } from '../api/simulate';
+import {
+  MAX_QUERY_LENGTH,
+  runSimulation,
+  runSimulationForPurchase,
+} from '../api/simulate';
 import { BalanceTrendChart } from '../components/BalanceTrendChart';
 import { Button } from '../components/Button';
 import { ErrorState } from '../components/ErrorState';
@@ -18,6 +22,7 @@ import {
   type ApiErrorCode,
   SCENARIO_LABEL,
   type DeadPoint,
+  type ParsedQuery,
   type Scenario,
   type SimulationResponse,
 } from '../types/contract';
@@ -31,11 +36,18 @@ type RunState =
 interface SimulationPageProps {
   personaId: number;
   onNavigateToPersonas?: () => void;
+  /**
+   * 결제 라우팅에서 넘어온 구매. 있으면 화면에 들어오는 즉시 계산한다 —
+   * 이용자는 이미 "이 결제로 잔고를 보겠다"고 눌렀으므로 여기서 한 번 더
+   * 누르게 하지 않는다. 자연어로 다시 묻지도 않는다(값을 이미 안다).
+   */
+  incomingPurchase?: ParsedQuery;
 }
 
 export function SimulationPage({
   personaId,
   onNavigateToPersonas,
+  incomingPurchase,
 }: SimulationPageProps) {
   const [query, setQuery] = useState('');
   const [state, setState] = useState<RunState>({ status: 'idle' });
@@ -60,6 +72,28 @@ export function SimulationPage({
     },
     [personaId],
   );
+
+  // 넘어온 구매는 한 번만 계산한다. 의존성에 객체를 그대로 넣으면 렌더마다
+  // 새 참조가 되어 무한히 다시 계산된다.
+  const startedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (incomingPurchase === undefined) return;
+    const key = JSON.stringify([personaId, incomingPurchase]);
+    if (startedFor.current === key) return;
+    startedFor.current = key;
+
+    setState({ status: 'running' });
+    setSlowPhase(null);
+    runSimulationForPurchase(personaId, incomingPurchase, { onSlowRequest: setSlowPhase })
+      .then((result) => setState({ status: 'done', result }))
+      .catch((err: unknown) => {
+        if (err instanceof ApiRequestError) {
+          setState({ status: 'error', message: err.message, code: err.code });
+          return;
+        }
+        setState({ status: 'error', message: '시뮬레이션을 실행하지 못했습니다.' });
+      });
+  }, [personaId, incomingPurchase]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();

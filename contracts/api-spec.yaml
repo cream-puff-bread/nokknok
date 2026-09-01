@@ -128,7 +128,10 @@ paths:
           application/json:
             schema:
               type: object
-              required: [personaId, query]
+              required: [personaId]
+              description: |
+                query 와 purchase 중 하나는 반드시 있어야 한다.
+                둘 다 오면 purchase 가 이긴다.
               properties:
                 personaId: { type: integer }
                 query:
@@ -138,7 +141,17 @@ paths:
                   description: |
                     자연어 질의. 화면 입력란도 같은 길이로 제한한다 —
                     긴 문장은 LLM 런타임 예산을 넘기기 쉽고 비용도 는다.
+                    purchase 가 있으면 해석하지 않는다.
                   example: 아이폰 180만원 할부로 사도 될까
+                purchase:
+                  allOf: [{ $ref: '#/components/schemas/ParsedQuery' }]
+                  description: |
+                    구조화된 구매 정보. 결제 라우팅 결과에서 넘어올 때 쓴다 —
+                    금액·카테고리·결제 방식을 화면이 이미 정확히 알고 있으므로
+                    LLM 으로 다시 해석하지 않는다. 아는 값을 문장으로 만들어
+                    되읽히면 1.4초를 더 쓰고, 해석이 어긋나면 두 화면이 서로
+                    다른 숫자를 말하게 된다.
+                    응답의 parsed 와 같은 스키마다 — 넘긴 값이 그대로 돌아온다.
       responses:
         '200':
           description: 성공

@@ -152,3 +152,113 @@ def test_요청_형식_오류는_422_INVALID_REQUEST다(client: TestClient, body
 
     assert response.status_code == 422
     assert response.json()["code"] == ErrorCode.INVALID_REQUEST
+
+
+class _ExplodingParser:
+    """호출되면 실패한다. 구조화 입력이 파서를 건드리지 않는지 확인하는 용도."""
+
+    def parse(self, query: str) -> ParsedQuery:
+        raise AssertionError("구조화 입력인데 질의 해석기가 호출됐다")
+
+
+_PURCHASE = {
+    "amount": 1_800_000,
+    "paymentType": "INSTALLMENT",
+    "installmentMonths": 6,
+    "category": "ONLINE",
+}
+
+
+class TestStructuredPurchase:
+    """결제 라우팅에서 넘어오는 구조화 입력.
+
+    그 화면은 금액·카테고리·결제 방식을 이미 정확히 알고 있다. 문장으로
+    만들어 LLM 에 되읽히면 시간을 더 쓰고, 해석이 어긋나면 두 화면이 서로
+    다른 숫자를 말하게 된다.
+    """
+
+    def test_구조화_입력은_질의_해석기를_호출하지_않는다(self, make_client):
+        client = make_client(_ExplodingParser())
+
+        response = client.post(
+            "/api/simulate", json={"personaId": 2, "purchase": _PURCHASE}
+        )
+
+        assert response.status_code == 200
+
+    def test_넘긴_값이_parsed로_그대로_돌아온다(self, make_client):
+        client = make_client(_ExplodingParser())
+
+        body = client.post(
+            "/api/simulate", json={"personaId": 2, "purchase": _PURCHASE}
+        ).json()
+
+        assert body["parsed"] == _PURCHASE
+
+    def test_purchase가_query보다_우선한다(self, make_client):
+        # 둘 다 오면 해석기를 타지 않는다 — 탔다면 _ExplodingParser 가 터진다.
+        client = make_client(_ExplodingParser())
+
+        body = client.post(
+            "/api/simulate",
+            json={"personaId": 2, "query": "전혀 다른 질문", "purchase": _PURCHASE},
+        ).json()
+
+        assert body["parsed"] == _PURCHASE
+
+    def test_같은_구매면_자연어와_결과가_같다(self, make_client):
+        parsed = _parsed(installment_months=6)
+        natural = make_client(_StubParser(parsed)).post(
+            "/api/simulate", json={"personaId": 2, "query": "아이폰 180만원 6개월 할부"}
+        ).json()
+
+        structured = make_client(_ExplodingParser()).post(
+            "/api/simulate", json={"personaId": 2, "purchase": _PURCHASE}
+        ).json()
+
+        assert structured["scenarios"] == natural["scenarios"]
+        assert structured["deadPoint"] == natural["deadPoint"]
+
+    def test_둘_다_없으면_422다(self, client: TestClient):
+        response = client.post("/api/simulate", json={"personaId": 2})
+
+        assert response.status_code == 422
+        assert response.json()["code"] == ErrorCode.INVALID_REQUEST
+
+    def test_마스터에_없는_카테고리는_거부한다(self, make_client):
+        """LLM 을 건너뛰어도 값 검증까지 건너뛰지는 않는다."""
+        client = make_client(_ExplodingParser())
+
+        response = client.post(
+            "/api/simulate",
+            json={"personaId": 2, "purchase": {**_PURCHASE, "category": "온라인"}},
+        )
+
+        assert response.status_code == 422
+        assert response.json()["code"] == ErrorCode.INVALID_CATEGORY
+
+    def test_금액이_0이면_거부한다(self, make_client):
+        client = make_client(_ExplodingParser())
+
+        response = client.post(
+            "/api/simulate", json={"personaId": 2, "purchase": {**_PURCHASE, "amount": 0}}
+        )
+
+        assert response.status_code == 422
+        assert response.json()["code"] == ErrorCode.INVALID_AMOUNT
+
+    def test_결제방식과_할부개월이_어긋나면_거부한다(self, make_client):
+        """PlannedPurchase 도 같은 불변식을 지키지만 거긴 ValueError 라 500 이 된다."""
+        client = make_client(_ExplodingParser())
+
+        lump = client.post(
+            "/api/simulate",
+            json={"personaId": 2, "purchase": {**_PURCHASE, "paymentType": "LUMP"}},
+        )
+        zero = client.post(
+            "/api/simulate",
+            json={"personaId": 2, "purchase": {**_PURCHASE, "installmentMonths": 0}},
+        )
+
+        assert lump.status_code == 422
+        assert zero.status_code == 422

@@ -1,8 +1,11 @@
-import type { ReactElement } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router';
+import { useMemo, type ReactElement } from 'react';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { DEFAULT_PERSONA_ID } from './api/personas';
 import { AppLayout } from './components/AppLayout';
+import type { ParsedQuery, PaymentType } from './types/contract';
+
+const PAYMENT_TYPES: PaymentType[] = ['LUMP', 'INSTALLMENT', 'INTEREST_FREE'];
 import { BalanceDashboardPage } from './pages/BalanceDashboardPage';
 import { CardsPage } from './pages/CardsPage';
 import { PersonaSelectPage } from './pages/PersonaSelectPage';
@@ -85,12 +88,85 @@ const BalanceRoute = withPersonaId((personaId, onNavigateToPersonas) => (
 const CardsRoute = withPersonaId((personaId, onNavigateToPersonas) => (
   <CardsPage personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
 ));
+
+// 결제 라우팅에서 넘어온 구매는 URL 쿼리로 싣는다. 공유 상태를 쓰면 새로고침과
+// 딥링크에서 사라지는데, personaId 를 URL 에 두기로 한 것과 같은 이유로 주소에
+// 남긴다. 값이 하나라도 모자라거나 형식이 틀리면 그냥 무시하고 평소의 자연어
+// 입력 화면을 보여준다 — 잘못된 주소 때문에 화면이 막히지 않게 한다.
+function useIncomingPurchase(): ParsedQuery | undefined {
+  const [params] = useSearchParams();
+  const amount = Number(params.get('amount'));
+  const months = Number(params.get('installmentMonths') ?? '0');
+  const category = params.get('category');
+  const paymentType = params.get('paymentType');
+
+  return useMemo(() => {
+    if (!Number.isInteger(amount) || amount <= 0) return undefined;
+    if (!category || !paymentType) return undefined;
+    if (!PAYMENT_TYPES.includes(paymentType as PaymentType)) return undefined;
+    if (!Number.isInteger(months) || months < 0) return undefined;
+    return {
+      amount,
+      category,
+      paymentType: paymentType as PaymentType,
+      installmentMonths: months,
+    };
+    // params 객체는 렌더마다 새 참조라 원시값으로 의존성을 건다.
+  }, [amount, category, paymentType, months]);
+}
+
 const SimulateRoute = withPersonaId((personaId, onNavigateToPersonas) => (
-  <SimulationPage personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
+  <SimulateScreen personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
 ));
+
+function SimulateScreen({
+  personaId,
+  onNavigateToPersonas,
+}: {
+  personaId: number;
+  onNavigateToPersonas: () => void;
+}) {
+  return (
+    <SimulationPage
+      personaId={personaId}
+      onNavigateToPersonas={onNavigateToPersonas}
+      incomingPurchase={useIncomingPurchase()}
+    />
+  );
+}
+
 const RouteResultRoute = withPersonaId((personaId, onNavigateToPersonas) => (
-  <RouteResultPage personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
+  <RouteResultScreen personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
 ));
+
+// 라우팅 결과 -> 시뮬레이션 이동. 화면은 값만 넘기고 어디로 갈지는 모른다
+// (PersonaSelectRoute 와 같은 이유로 래퍼가 useNavigate 를 맡는다).
+function RouteResultScreen({
+  personaId,
+  onNavigateToPersonas,
+}: {
+  personaId: number;
+  onNavigateToPersonas: () => void;
+}) {
+  const navigate = useNavigate();
+  return (
+    <RouteResultPage
+      personaId={personaId}
+      onNavigateToPersonas={onNavigateToPersonas}
+      onSimulate={(purchase) =>
+        navigate({
+          pathname: `/simulate/${personaId}`,
+          search: new URLSearchParams({
+            amount: String(purchase.amount),
+            category: purchase.category,
+            paymentType: purchase.paymentType,
+            installmentMonths: String(purchase.installmentMonths),
+          }).toString(),
+        })
+      }
+    />
+  );
+}
 
 // 다음 사람은 이 배열 맨 끝에 한 줄만 추가한다. 같은 지점에 동시에 삽입하면
 // 병합 충돌이 나기 쉬우므로, 배열 중간에 끼워 넣지 않는다.
