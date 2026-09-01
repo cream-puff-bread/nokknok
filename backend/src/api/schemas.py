@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 from src.adapter.base import ExpenseType, PaymentType
@@ -114,11 +114,47 @@ class RouteResponse(CamelModel):
 # ─────────────────────────────────────────────
 # 시뮬레이션
 # ─────────────────────────────────────────────
+class PurchaseInput(CamelModel):
+    """구조화된 구매 정보. 응답의 ParsedQueryResponse 와 필드가 같다.
+
+    결제 라우팅 화면은 금액·카테고리·결제 방식을 이미 정확히 알고 있다.
+    그걸 문장으로 만들어 LLM 에 되읽히면 1.4초를 더 쓰고, 해석이 어긋나면
+    두 화면이 서로 다른 숫자를 말하게 된다.
+    """
+
+    amount: int
+    payment_type: PurchasePaymentType
+    installment_months: int = 0
+    category: str
+
+    @model_validator(mode="after")
+    def _check_installment(self) -> PurchaseInput:
+        # PlannedPurchase 도 같은 불변식을 지키지만 그건 ValueError 라 500 이
+        # 된다. 자연어 경로는 파서가 정규화해 이 조합이 안 나오는데, 구조화
+        # 입력은 클라이언트가 그대로 보낼 수 있으므로 경계에서 막아 422 로
+        # 돌려준다(CLAUDE.md: 모든 응답은 ErrorResponse 형식이다).
+        if self.payment_type is PurchasePaymentType.LUMP:
+            if self.installment_months != 0:
+                raise ValueError("일시불에는 할부 개월을 지정할 수 없습니다")
+        elif self.installment_months <= 0:
+            raise ValueError("할부 결제에는 할부 개월이 필요합니다")
+        return self
+
+
 class SimulateRequest(CamelModel):
     persona_id: int
     # 상한을 두는 이유는 긴 문장이 런타임 예산을 넘기기 쉽고 비용도 늘기
     # 때문이다. 화면 입력란도 같은 값으로 제한한다.
-    query: str = Field(min_length=1, max_length=MAX_QUERY_LENGTH)
+    query: str | None = Field(default=None, min_length=1, max_length=MAX_QUERY_LENGTH)
+    purchase: PurchaseInput | None = None
+
+    @model_validator(mode="after")
+    def _require_one_input(self) -> SimulateRequest:
+        # 둘 다 없으면 무엇을 계산할지 알 수 없다. 스키마 단계에서 막아
+        # 라우터가 None 을 다시 확인하지 않게 한다.
+        if self.query is None and self.purchase is None:
+            raise ValueError("query 와 purchase 중 하나는 있어야 합니다")
+        return self
 
 
 class ParsedQueryResponse(CamelModel):
