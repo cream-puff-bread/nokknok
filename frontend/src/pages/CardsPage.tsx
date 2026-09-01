@@ -6,7 +6,6 @@ import {
   SLOW_REQUEST_MESSAGE,
   type SlowRequestPhase,
 } from '../api/client';
-import { DemoBadge } from '../components/RouteCandidateCard';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { PersonaNotFoundAction } from '../components/PersonaNotFoundAction';
@@ -30,15 +29,34 @@ interface CardsPageProps {
   onNavigateToPersonas?: () => void;
 }
 
+/**
+ * 카드 면 색. 카드에 색 정보가 없으므로 보유 순서로 배정한다.
+ *
+ * 어두운 색만 쓰는 이유는 ui-system.md 가 초록=성공, 호박=주의로 의미를
+ * 배정해 뒀기 때문이다. 카드 면에 그 색을 쓰면 "이 카드가 좋다/나쁘다" 로
+ * 잘못 읽힌다. 카드는 신원 표시일 뿐이라 의미를 담지 않는다.
+ */
+const CARD_FACES = [
+  'from-slate-800 to-slate-600',
+  'from-blue-800 to-blue-600',
+  'from-violet-800 to-violet-600',
+];
+
 export function CardsPage({ personaId, onNavigateToPersonas }: CardsPageProps) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [slowPhase, setSlowPhase] = useState<SlowRequestPhase | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const load = useCallback(() => {
     setState({ status: 'loading' });
     setSlowPhase(null);
     fetchOwnedCards(personaId, { onSlowRequest: setSlowPhase })
-      .then((cards) => setState({ status: 'loaded', cards }))
+      .then((cards) => {
+        setState({ status: 'loaded', cards });
+        // 처음에는 첫 카드를 펴 둔다. 아무것도 안 열려 있으면 화면이 비어
+        // 보이고, 무엇을 눌러야 하는지도 알기 어렵다.
+        setSelectedId(cards[0]?.cardId ?? null);
+      })
       .catch((err: unknown) => {
         if (err instanceof ApiRequestError) {
           setState({ status: 'error', message: err.message, code: err.code });
@@ -50,20 +68,28 @@ export function CardsPage({ personaId, onNavigateToPersonas }: CardsPageProps) {
 
   useEffect(load, [load]);
 
+  const selected =
+    state.status === 'loaded'
+      ? (state.cards.find((c) => c.cardId === selectedId) ?? null)
+      : null;
+
   return (
     <section className="space-y-6">
       <div>
         <h3 className="text-lg font-semibold text-gray-900 mb-1">내 카드</h3>
         <p className="text-sm text-gray-500">
-          카드마다 이번 실적과 지금 열려 있는 혜택, 실적에서 빠지는 항목을 함께 봅니다.
+          카드를 고르면 이번 실적과 지금 열려 있는 혜택, 실적에서 빠지는 항목을 보여줍니다.
         </p>
       </div>
 
       {state.status === 'loading' && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           {slowPhase && <p className="text-xs text-gray-500">{SLOW_REQUEST_MESSAGE[slowPhase]}</p>}
-          <Skeleton className="h-56 w-full rounded-xl" />
-          <Skeleton className="h-56 w-full rounded-xl" />
+          <div className="flex gap-4">
+            <Skeleton className="h-44 w-72 rounded-2xl" />
+            <Skeleton className="h-44 w-72 rounded-2xl" />
+          </div>
+          <Skeleton className="h-64 w-full rounded-xl" />
         </div>
       )}
 
@@ -81,55 +107,113 @@ export function CardsPage({ personaId, onNavigateToPersonas }: CardsPageProps) {
         (state.cards.length === 0 ? (
           <EmptyState message="보유한 카드가 없습니다." />
         ) : (
-          <div className="space-y-4">
-            {state.cards.map((card) => (
-              <CardPanel key={card.cardId} card={card} />
-            ))}
-          </div>
+          <>
+            <div
+              role="radiogroup"
+              aria-label="카드 선택"
+              className="flex gap-4 overflow-x-auto pb-2"
+            >
+              {state.cards.map((card, i) => (
+                <CardFace
+                  key={card.cardId}
+                  card={card}
+                  face={CARD_FACES[i % CARD_FACES.length]}
+                  selected={card.cardId === selectedId}
+                  onSelect={() => setSelectedId(card.cardId)}
+                />
+              ))}
+            </div>
+
+            {selected && <CardDetail card={selected} />}
+          </>
         ))}
     </section>
   );
 }
 
-function CardPanel({ card }: { card: OwnedCard }) {
-  // 아직 아무 혜택도 열리지 않았다면 얼마가 모자란지 알려준다. 실적을 채우면
-  // 무엇이 열리는지가 이 화면의 핵심이라, 숫자만 보여주고 끝내지 않는다.
+/** 실적을 다음 문턱 대비 비율로. 문턱이 없거나 이미 넘겼으면 100% 로 둔다. */
+function progressRatio(card: OwnedCard): number {
+  if (card.perfNextThreshold === null || card.perfNextThreshold === 0) return 1;
+  return Math.min(1, card.perfCurrent / card.perfNextThreshold);
+}
+
+function CardFace({
+  card,
+  face,
+  selected,
+  onSelect,
+}: {
+  card: OwnedCard;
+  face: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const active = card.benefits.some((b) => b.active);
+  const ratio = progressRatio(card);
+
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={`shrink-0 w-72 text-left rounded-2xl p-5 bg-gradient-to-br ${face} text-white transition-all ${
+        selected
+          ? 'ring-2 ring-blue-600 ring-offset-2 shadow-lg'
+          : 'opacity-75 hover:opacity-100'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2 mb-6">
+        <span className="text-xs text-white/70">{card.issuer}</span>
+        {card.isDemo && (
+          <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-white/20 text-white/90">
+            시연용
+          </span>
+        )}
+      </div>
+
+      <p className="text-base font-semibold leading-snug mb-1">{card.cardName}</p>
+      <p className="text-xs text-white/70 mb-4">매월 {card.paymentDay}일 결제</p>
+
+      <p className="text-xl font-bold tabular-nums">{formatWon(card.perfCurrent)}</p>
+      {/* 카드 면에 실적 진행을 얹는다. 이름만 있는 카드는 고를 근거가 없다. */}
+      <div className="mt-2 h-1.5 rounded-full bg-white/20 overflow-hidden">
+        <div className="h-full rounded-full bg-white/80" style={{ width: `${ratio * 100}%` }} />
+      </div>
+      <p className="text-xs text-white/70 mt-1.5">
+        {active ? '혜택 적용 중' : `${formatWon((card.perfNextThreshold ?? 0) - card.perfCurrent)} 남음`}
+      </p>
+    </button>
+  );
+}
+
+function CardDetail({ card }: { card: OwnedCard }) {
   const shortfall =
     card.perfNextThreshold !== null && card.perfCurrent < card.perfNextThreshold
       ? card.perfNextThreshold - card.perfCurrent
       : 0;
 
   return (
-    <article className="bg-white rounded-xl border border-gray-200 p-6">
-      <div className="flex items-start justify-between gap-4 mb-4">
+    <article className="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <p className="text-lg font-semibold text-gray-900">{card.cardName}</p>
-            {card.isDemo && <DemoBadge />}
-          </div>
-          <p className="text-xs text-gray-500 mt-1">
-            {card.issuer} · 매월 {card.paymentDay}일 결제
+          <p className="text-xs text-gray-500 mb-1">
+            이번 실적 · {formatDate(card.perfPeriodStart)}~{formatDate(card.perfPeriodEnd)}
           </p>
+          <p className="text-3xl font-bold tabular-nums text-gray-900">
+            {formatWon(card.perfCurrent)}
+          </p>
+          {shortfall > 0 && (
+            <p className="text-sm text-amber-600 mt-1">
+              <span className="tabular-nums">{formatWon(shortfall)}</span> 더 쓰면 혜택이 열립니다
+            </p>
+          )}
         </div>
         {card.monthlyCap !== null && (
           <div className="text-right">
             <p className="text-xs text-gray-500 mb-1">월 통합 한도</p>
             <p className="text-sm text-gray-900 tabular-nums">{formatWon(card.monthlyCap)}</p>
           </div>
-        )}
-      </div>
-
-      <div className="mb-4">
-        <p className="text-xs text-gray-500 mb-1">
-          이번 실적 · {formatDate(card.perfPeriodStart)}~{formatDate(card.perfPeriodEnd)}
-        </p>
-        <p className="text-3xl font-bold tabular-nums text-gray-900">
-          {formatWon(card.perfCurrent)}
-        </p>
-        {shortfall > 0 && (
-          <p className="text-sm text-amber-600 mt-1">
-            <span className="tabular-nums">{formatWon(shortfall)}</span> 더 쓰면 혜택이 열립니다
-          </p>
         )}
       </div>
 
@@ -146,7 +230,7 @@ function CardPanel({ card }: { card: OwnedCard }) {
  */
 function BenefitTable({ benefits }: { benefits: CardBenefit[] }) {
   return (
-    <div className="mb-4">
+    <div>
       <h4 className="text-xs text-gray-500 mb-2">실적 구간별 혜택</h4>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -163,9 +247,7 @@ function BenefitTable({ benefits }: { benefits: CardBenefit[] }) {
               <tr
                 key={i}
                 className={
-                  b.active
-                    ? 'bg-blue-50 text-gray-900'
-                    : 'text-gray-500 border-t border-gray-100'
+                  b.active ? 'bg-blue-50 text-gray-900' : 'text-gray-500 border-t border-gray-100'
                 }
               >
                 <td className="py-1.5 pr-4 tabular-nums whitespace-nowrap">
