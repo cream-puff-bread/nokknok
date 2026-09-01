@@ -38,7 +38,7 @@ INSERT INTO fixed_expense (persona_id, expense_type, label, amount, charge_day, 
 INSERT INTO persona (id, code, display_name, description, account_balance, monthly_income, income_day)
 VALUES (2, 'INSTALLMENT_HEAVY', '할부가 겹친 이넉넉',
         '가전과 전자기기를 할부로 구매해 잔여 할부금이 누적되어 있다. 추가 소비 시 몇 달 뒤 잔고가 마이너스로 전환될 위험이 있다.',
-        1180000, 2900000, 10);
+        1600000, 2900000, 10);
 
 INSERT INTO persona_card (persona_id, card_id, payment_day) VALUES
 (2, 1, 25),
@@ -49,6 +49,8 @@ INSERT INTO fixed_expense (persona_id, expense_type, label, amount, charge_day, 
 (2, 'INSTALLMENT',  '노트북 12개월 할부',   145000, 25,    7, NULL,         1),
 (2, 'INSTALLMENT',  '냉장고 24개월 할부',    72000, 14,   16, NULL,         2),
 (2, 'INSTALLMENT',  '태블릿 6개월 할부',    118000,  5,    2, NULL,         3),
+(2, 'INSTALLMENT',  '에어컨 6개월 할부',    348000, 20,    6, NULL,         1),
+(2, 'LOAN',         '가전 구입 신용대출 상환', 530000, 28, 24, NULL,      NULL),
 (2, 'SUBSCRIPTION', '영상 스트리밍 A',       17000,  7, NULL, '2026-08-13', 2),
 (2, 'SUBSCRIPTION', '음원 스트리밍',         10900, 12, NULL, '2026-08-15', 2),
 (2, 'INSURANCE',    '실손의료보험',          52000, 15, NULL, NULL,         NULL);
