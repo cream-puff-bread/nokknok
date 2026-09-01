@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 
+import { DEFAULT_PERSONA_ID } from './api/personas';
 import { AppLayout } from './components/AppLayout';
 import { BalanceDashboardPage } from './pages/BalanceDashboardPage';
 import { PersonaSelectPage } from './pages/PersonaSelectPage';
@@ -65,7 +66,10 @@ function withPersonaId(
     const navigate = useNavigate();
     const parsed = Number(personaId);
     if (!Number.isInteger(parsed) || parsed <= 0) {
-      return <Navigate to="/personas" replace />;
+      // 주소가 잘못된 것이지 이용자가 뭘 고를 문제가 아니다. 홈(대시보드)으로
+      // 돌려보낸다 — 사례 선택으로 보내면 없앤 "가상 인물 고르기" 가 오류
+      // 경로로 되살아난다.
+      return <Navigate to={`/balance/${DEFAULT_PERSONA_ID}`} replace />;
     }
     return <AppLayout personaId={parsed}>{render(parsed, () => navigate('/personas'))}</AppLayout>;
   };
@@ -93,7 +97,10 @@ export const routes: RouteEntry[] = [
   // <Routes>는 매칭이 없으면 null을 렌더링한다. 배포 루트(/)가 그 상태로
   // 나가면 헤더만 뜨고 본문이 빈다 — 심사위원이 맨 처음 여는 주소다.
   // replace를 써서 뒤로가기에서 / ↔ /personas 루프가 안 생기게 한다.
-  { path: '/', element: <Navigate to="/personas" replace /> },
+  // 착륙 화면을 사례 선택이 아니라 대시보드로 둔다. 가상 인물 셋을 늘어놓고
+  // 고르게 하면 아무 설명이 나오기 전에 "이건 데모입니다" 라고 말하는 셈이다.
+  // 사례 전환은 헤더의 계정 전환처럼 부차적으로 남는다(AppLayout 참조).
+  { path: '/', element: <Navigate to={`/balance/${DEFAULT_PERSONA_ID}`} replace /> },
   { path: '/personas', element: <PersonaSelectRoute /> },
   // 업로드는 페르소나와 무관한 별개 진입점이다(위 PersonaSelectRoute 주석
   // 참고) — personaId를 URL에 싣지 않는다.
@@ -104,8 +111,9 @@ export const routes: RouteEntry[] = [
 
   { path: '/route/:personaId', element: <RouteResultRoute /> },
 
+  // 미매칭 경로도 사례 선택이 아니라 대시보드로 보낸다 — 위 '/' 와 같은 이유다.
   // 미매칭 경로 전부를 여기서 받는다(항상 배열 맨 끝에 둔다). SPA 폴백(#19)
   // 도입 이후로는 존재하지 않는 경로도 200으로 index.html을 받으므로,
   // 이 라우트가 없으면 /nope 같은 주소도 같은 빈 화면이 된다.
-  { path: '*', element: <Navigate to="/personas" replace /> },
+  { path: '*', element: <Navigate to={`/balance/${DEFAULT_PERSONA_ID}`} replace /> },
 ];
