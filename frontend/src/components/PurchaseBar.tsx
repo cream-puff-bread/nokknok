@@ -10,10 +10,10 @@ interface PurchaseBarProps {
 }
 
 /**
- * 화면 아래에 고정된 구매 입력 바.
+ * 구매 질문 입력창.
  *
- * 시뮬레이션을 하려고 탭을 눌러 빈 화면으로 가야 했다. 잔고와 카드를 보고
- * 있는 그 자리에서 바로 물어볼 수 있어야 흐름이 끊기지 않는다.
+ * 잔고 바로 아래에 둔다. 얼마를 쓸 수 있는지 본 그 자리에서 바로 물어보게
+ * 하려는 것이고, 아래에 지난 질문이 쌓이면 채팅하듯 이어 묻는 흐름이 된다.
  *
  * 검색창처럼 생긴 것은 즉답을 약속한다. 그런데 질의 해석에 LLM 이 걸려 있어
  * 2초 남짓 걸리고, 서버가 잠들어 있으면 40초까지 간다. 그래서 진행 상태를
@@ -28,13 +28,14 @@ export function PurchaseBar({ running, slowMessage, onSubmit }: PurchaseBarProps
     const trimmed = query.trim();
     if (trimmed.length === 0 || running) return;
     onSubmit(trimmed);
+    // 보낸 뒤에는 비운다. 채팅처럼 이어 물을 수 있어야 하고, 남아 있으면
+    // 같은 질문을 실수로 두 번 보내기 쉽다.
+    setQuery('');
   };
 
   return (
-    // 바깥은 전체 너비로 깔고 안쪽만 본문 폭에 맞춘다. 고정 요소에 max-width 만
-    // 주면 흰 바가 가운데만 차지하고 양옆으로 배경이 비친다.
-    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white shadow-[0_-8px_32px_rgba(0,0,0,0.06)]">
-      <form onSubmit={submit} className="max-w-5xl mx-auto px-4 md:px-8 py-3">
+    <form onSubmit={submit}>
+      <div>
         <div className="flex gap-2">
           <input
             type="text"
@@ -59,7 +60,7 @@ export function PurchaseBar({ running, slowMessage, onSubmit }: PurchaseBarProps
             {slowMessage ?? '질의를 해석하고 카드와 잔고를 함께 계산합니다.'}
           </p>
         )}
-      </form>
-    </div>
+      </div>
+    </form>
   );
 }

@@ -37,19 +37,20 @@ import {
  * 영수증을 먼저 띄우고 카드 칸만 마저 채운다 — 둘 다 기다리면 4초 넘게
  * 빈 화면을 보게 된다.
  */
-type PurchaseState =
-  | { status: 'idle' }
-  | { status: 'parsing' }
-  | {
-      status: 'done';
-      purchase: ParsedQuery;
-      // 데드포인트만 들고 있으면 영수증은 그릴 수 있어도 6개월 추이는 못
-      // 그린다. 한 화면에서 답을 끝내려면 시나리오까지 필요하다.
-      simulation: SimulationResponse;
-      route: RouteResponse | null;
-      routeLoading: boolean;
-    }
-  | { status: 'error'; message: string };
+/**
+ * 물어본 것 한 건. 답까지 들고 있어서 기록을 다시 눌러도 계산을 반복하지 않는다.
+ *
+ * 데드포인트만 들고 있으면 영수증은 그려도 6개월 추이는 못 그리므로
+ * 시뮬레이션 응답을 통째로 보관한다.
+ */
+interface AskEntry {
+  id: number;
+  query: string;
+  purchase: ParsedQuery;
+  simulation: SimulationResponse;
+  route: RouteResponse | null;
+  routeLoading: boolean;
+}
 
 type LoadState =
   | { status: 'loading' }
@@ -67,47 +68,52 @@ export function HomePage({
 }: HomePageProps) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [slowPhase, setSlowPhase] = useState<SlowRequestPhase | null>(null);
-  const [purchase, setPurchase] = useState<PurchaseState>({ status: 'idle' });
+  // 물어본 것들. 최근 것이 위로 온다. 답은 모달에만 띄우고 여기에는 질문만
+  // 남긴다 — 결과를 페이지에도 펼치면 같은 내용이 두 번 있는 것처럼 읽힌다.
+  const [history, setHistory] = useState<AskEntry[]>([]);
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
   const [purchaseSlow, setPurchaseSlow] = useState<SlowRequestPhase | null>(null);
   const categoryLabel = useCategoryLabels();
-  // 답이 나오면 모달로 앞에 띄운다.
-  const [dialogOpen, setDialogOpen] = useState(false);
 
-  useEffect(() => {
-    if (purchase.status === 'done') setDialogOpen(true);
-  }, [purchase.status]);
+  const open = history.find((entry) => entry.id === openId) ?? null;
 
   const askPurchase = useCallback(
     (query: string) => {
-      setPurchase({ status: 'parsing' });
+      const id = Date.now();
+      setAsking(true);
+      setAskError(null);
       setPurchaseSlow(null);
+      const patch = (change: Partial<AskEntry>) =>
+        setHistory((prev) => prev.map((e) => (e.id === id ? { ...e, ...change } : e)));
+
       runSimulation(personaId, query, { onSlowRequest: setPurchaseSlow })
         .then((simulation) => {
-          setPurchase({
-            status: 'done',
-            purchase: simulation.parsed,
-            simulation,
-            route: null,
-            routeLoading: true,
-          });
+          setHistory((prev) => [
+            {
+              id,
+              query,
+              purchase: simulation.parsed,
+              simulation,
+              route: null,
+              routeLoading: true,
+            },
+            ...prev,
+          ]);
+          setOpenId(id);
+          setAsking(false);
           return runRoute(personaId, simulation.parsed.amount, simulation.parsed.category)
-            .then((route) =>
-              setPurchase((prev) =>
-                prev.status === 'done' ? { ...prev, route, routeLoading: false } : prev,
-              ),
-            )
-            // 카드 추천이 실패해도 잔고 답은 이미 화면에 있다. 영수증을
+            .then((route) => patch({ route, routeLoading: false }))
+            // 카드 추천이 실패해도 잔고 답은 이미 모달에 있다. 영수증을
             // 통째로 지우지 않고 그 칸만 비운다.
-            .catch(() =>
-              setPurchase((prev) =>
-                prev.status === 'done' ? { ...prev, routeLoading: false } : prev,
-              ),
-            );
+            .catch(() => patch({ routeLoading: false }));
         })
         .catch((err: unknown) => {
-          const message =
-            err instanceof ApiRequestError ? err.message : '계산하지 못했습니다.';
-          setPurchase({ status: 'error', message });
+          setAsking(false);
+          setAskError(
+            err instanceof ApiRequestError ? err.message : '계산하지 못했습니다.',
+          );
         });
     },
     [personaId],
@@ -159,8 +165,7 @@ export function HomePage({
   const { accountBalance, fixedTotal, availableBalance, fixedExpenses } = state.balance;
 
   return (
-    // 아래 고정 바가 본문 끝을 가리지 않도록 여백을 둔다.
-    <section className="space-y-6 pb-32">
+    <section className="space-y-6">
       <div className="bg-blue-50 rounded-xl border border-blue-200 p-6">
         <p className="text-sm text-gray-500 mb-1">가용잔고</p>
         <p
@@ -191,31 +196,38 @@ export function HomePage({
         )}
       </div>
 
-      {purchase.status === 'error' && <ErrorState message={purchase.message} />}
+      <div className="space-y-3">
+        <PurchaseBar
+          running={asking}
+          slowMessage={purchaseSlow ? SLOW_REQUEST_MESSAGE[purchaseSlow] : null}
+          onSubmit={askPurchase}
+        />
 
-      {purchase.status === 'done' && (
-        <>
-          <ReceiptDialog open={dialogOpen} onClose={() => setDialogOpen(false)}>
-            <ReceiptWithChart
-              purchase={purchase}
-              categoryLabel={categoryLabel}
-            />
-          </ReceiptDialog>
+        {askError !== null && <ErrorState message={askError} />}
 
-          {/* 답은 모달에만 둔다. 닫으면 대시보드로 돌아간다.
-              대신 다시 열 수 있게 해서, 실수로 닫았다고 4초를 다시 기다리게
-              하지는 않는다. */}
-          {!dialogOpen && (
-            <button
-              type="button"
-              onClick={() => setDialogOpen(true)}
-              className="text-sm text-blue-600 underline hover:text-blue-700"
-            >
-              방금 계산한 결과 다시 보기
-            </button>
-          )}
-        </>
-      )}
+        {/* 답이 아니라 물어본 것만 남긴다. 결과를 여기에도 펼치면 모달과
+            같은 내용이 두 번 있는 것처럼 읽힌다. 누르면 그 때 계산한 답이
+            그대로 다시 열린다 — 다시 계산하지 않는다. */}
+        {history.length > 0 && (
+          <ul className="space-y-1">
+            {history.map((entry) => (
+              <li key={entry.id}>
+                <button
+                  type="button"
+                  onClick={() => setOpenId(entry.id)}
+                  className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-500 transition-colors hover:bg-white hover:text-gray-900"
+                >
+                  <span className="text-gray-400">↳</span> {entry.query}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <ReceiptDialog open={open !== null} onClose={() => setOpenId(null)}>
+        {open !== null && <ReceiptWithChart purchase={open} categoryLabel={categoryLabel} />}
+      </ReceiptDialog>
 
       <CardsSection personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
 
@@ -235,11 +247,6 @@ export function HomePage({
         )}
       </div>
 
-      <PurchaseBar
-        running={purchase.status === 'parsing' || (purchase.status === 'done' && purchase.routeLoading)}
-        slowMessage={purchaseSlow ? SLOW_REQUEST_MESSAGE[purchaseSlow] : null}
-        onSubmit={askPurchase}
-      />
     </section>
   );
 }
@@ -273,7 +280,7 @@ function ReceiptWithChart({
   purchase,
   categoryLabel,
 }: {
-  purchase: Extract<PurchaseState, { status: 'done' }>;
+  purchase: AskEntry;
   categoryLabel: (code: string) => string;
 }) {
   return (
