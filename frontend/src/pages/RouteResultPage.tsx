@@ -16,6 +16,7 @@ import { Skeleton } from '../components/Skeleton';
 import {
   formatWon,
   type ApiErrorCode,
+  type ParsedQuery,
   type RouteResponse,
   type SpendCategory,
 } from '../types/contract';
@@ -29,9 +30,22 @@ type RunState =
 interface RouteResultPageProps {
   personaId: number;
   onNavigateToPersonas?: () => void;
+  /**
+   * 추천 결과를 그대로 현금흐름 시뮬레이션으로 넘긴다.
+   *
+   * "어느 카드로 얼마를 아끼나" 와 "그래서 6개월 뒤 잔고가 어떻게 되나" 는
+   * 원래 하나의 질문인데 화면이 둘로 나뉘어 있었다. 금액·카테고리·결제
+   * 방식을 그대로 넘기므로 이용자가 같은 내용을 다시 입력하지 않고, 서버도
+   * 자연어를 다시 해석하지 않는다.
+   */
+  onSimulate?: (purchase: ParsedQuery) => void;
 }
 
-export function RouteResultPage({ personaId, onNavigateToPersonas }: RouteResultPageProps) {
+export function RouteResultPage({
+  personaId,
+  onNavigateToPersonas,
+  onSimulate,
+}: RouteResultPageProps) {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
   // null=조회 중, []=조회 실패, 목록=성공. []를 초기값으로 두면 "아직 응답
@@ -192,7 +206,23 @@ export function RouteResultPage({ personaId, onNavigateToPersonas }: RouteResult
         />
       )}
 
-      {state.status === 'done' && <RouteResult result={state.result} />}
+      {state.status === 'done' && (
+        <RouteResult
+          result={state.result}
+          onSimulate={
+            onSimulate &&
+            (() =>
+              onSimulate({
+                amount: amountValue,
+                category: category.trim().toUpperCase(),
+                // 추천받은 결제 방식을 그대로 넘긴다 — 이용자가 확인한 것이
+                // "이 카드로 이렇게 결제" 이므로 잔고도 그 조건으로 그린다.
+                paymentType: state.result.best.paymentType,
+                installmentMonths: state.result.best.installmentMonths,
+              }))
+          }
+        />
+      )}
     </section>
   );
 }
@@ -225,7 +255,13 @@ function RouteErrorDisplay({
   return <ErrorState message={message} onRetry={onRetry} />;
 }
 
-function RouteResult({ result }: { result: RouteResponse }) {
+function RouteResult({
+  result,
+  onSimulate,
+}: {
+  result: RouteResponse;
+  onSimulate?: () => void;
+}) {
   const { best, alternatives, newCardSuggestion, computeMeta } = result;
 
   return (
@@ -244,6 +280,12 @@ function RouteResult({ result }: { result: RouteResponse }) {
           </p>
         )}
         <ClauseList clauses={best.clauses} />
+
+        {onSimulate && (
+          <Button variant="secondary" onClick={onSimulate}>
+            이 결제로 6개월 잔고 보기
+          </Button>
+        )}
       </div>
 
       {newCardSuggestion && (
