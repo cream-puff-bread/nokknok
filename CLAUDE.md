@@ -105,8 +105,11 @@ npm run dev
 
 ### Data pipeline (mango606's domain)
 ```bash
-# Synthetic 6-month transaction history per persona, with realistic seasonality
-# (payday effects, day-of-week variance, category volatility) — not random.
+# Synthetic 6-month transaction history per persona, with realistic spending
+# patterns (payday effects, day-of-week variance, category volatility) — not
+# random. The forecast consumes category volatility and one-off large spends;
+# payday and day-of-week effects are injected for realism, not modelled
+# (docs/decisions/005 §6).
 python scripts/generate_persona.py --months 6 --seed 42
 psql $DATABASE_URL -f data/generated/transactions.sql
 
