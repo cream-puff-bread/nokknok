@@ -304,3 +304,174 @@ class TestNewCardSuggestion:
         assert result.new_card_suggestion is not None
         assert result.new_card_suggestion.card_name == "카드2"
         assert result.new_card_suggestion.expected_gain == 5_000
+
+
+class TestPaymentMethodCombinations:
+    """일시불/무이자할부 조합 탐색 (2026-08-29 하영님 스코프).
+
+    "무이자=혜택 0원"으로 단순화하면 안 된다 — 카드마다 무이자할부
+    제외 유형(BOTH vs PERFORMANCE)이 달라 결과가 갈린다.
+    """
+
+    def test_무이자할부가_BOTH_제외면_아예_시도하지_않는다(self):
+        card = _card(1)
+        rules = {1: [BenefitRule(1, 1, 0, None, "ONLINE", Decimal("0.10"), None, 9, True)]}
+        exclusions = {1: [Exclusion(1, 1, "BOTH", "PAYMENT_TYPE", "INTEREST_FREE", 4, True)]}
+
+        result = evaluate_route(
+            owned_cards=[_owned(1)],
+            cards_by_id={1: card},
+            rules_by_card=rules,
+            exclusions_by_card=exclusions,
+            transactions=[],
+            amount=100_000,
+            category="ONLINE",
+            as_of=AS_OF,
+        )
+
+        assert result.best.payment_type == "LUMP"
+        # dueDate가 없어 결제일 조합은 1개뿐이라, 시도 조합(LUMP만) 1개 중
+        # 가지치기는 없다 — "제외돼서 아예 안 만든 것"과 "만들었다가 버린 것"은
+        # 다르다. 가지치기는 무이자를 후보에서 통째로 뺀 경우에만 센다.
+        assert result.compute_meta.candidates_total == 1
+        assert result.compute_meta.candidates_pruned == 1
+
+    def test_무이자할부가_PERFORMANCE만_제외면_할인은_살아있다(self):
+        # 카드 C처럼 무이자할부가 실적에서만 빠지고 할인은 정상 적용되는 경우.
+        # "무이자=혜택 0원"으로 단순화했다면 이 테스트가 실패한다.
+        card = _card(1)
+        rules = {1: [BenefitRule(1, 1, 0, None, "ONLINE", Decimal("0.10"), None, 9, True)]}
+        exclusions = {
+            1: [Exclusion(1, 1, "PERFORMANCE", "PAYMENT_TYPE", "INTEREST_FREE", 4, True)]
+        }
+
+        result = evaluate_route(
+            owned_cards=[_owned(1)],
+            cards_by_id={1: card},
+            rules_by_card=rules,
+            exclusions_by_card=exclusions,
+            transactions=[],
+            amount=100_000,
+            category="ONLINE",
+            as_of=AS_OF,
+        )
+
+        # 일시불·무이자 둘 다 시도되고(가지치기 없음), 할인액도 동일해야 한다.
+        assert result.compute_meta.candidates_total == 2
+        assert result.compute_meta.candidates_pruned == 0
+        assert result.best.expected_discount == 10_000
+
+    def test_결제일_조합이_있으면_카드당_조합_수가_곱해진다(self):
+        # MONTH_START 카드, AS_OF=2026-08-25 -> 다음 마감(말일) 2026-08-31,
+        # 미룬 후보 결제일은 2026-09-01. dueDate를 그 이후로 주면 후보가 생겨
+        # 결제일 2개 x 결제방식 2개(무이자 제외 없음) = 4개가 시도된다.
+        card = _card(1)
+        rules = {1: [BenefitRule(1, 1, 0, None, "ONLINE", Decimal("0.10"), None, 9, True)]}
+
+        result = evaluate_route(
+            owned_cards=[_owned(1)],
+            cards_by_id={1: card},
+            rules_by_card=rules,
+            exclusions_by_card={1: []},
+            transactions=[],
+            amount=100_000,
+            category="ONLINE",
+            as_of=AS_OF,
+            due_date=date(2026, 9, 5),
+        )
+
+        assert result.compute_meta.candidates_total == 4
+        assert result.compute_meta.candidates_pruned == 0
+
+    def test_다음_마감이_구매기한_밖이면_결제일_후보가_안_생긴다(self):
+        # dueDate를 다음 마감(2026-08-31)보다 이르게 주면 "미룬 후보"
+        # 자체가 만들어지지 않는다 — 오늘 하나만 남아 조합 수가 그대로다.
+        card = _card(1)
+        rules = {1: [BenefitRule(1, 1, 0, None, "ONLINE", Decimal("0.10"), None, 9, True)]}
+
+        result = evaluate_route(
+            owned_cards=[_owned(1)],
+            cards_by_id={1: card},
+            rules_by_card=rules,
+            exclusions_by_card={1: []},
+            transactions=[],
+            amount=100_000,
+            category="ONLINE",
+            as_of=AS_OF,
+            due_date=date(2026, 8, 28),  # 다음 마감(8/31)보다 이름
+        )
+
+        assert result.compute_meta.candidates_total == 2  # 오늘 x 결제방식 2개뿐
+        assert result.best.pay_date == AS_OF
+
+
+class TestDelayedPayDatePerformanceCap:
+    """결제를 미룬 후보의 실적을 "오늘까지 실제로 지난 부분"으로만 캡하는지.
+
+    2026-08-29 하영님이 찾은 구조적 편향 수정 검증 — 미룬 후보가 참조하는
+    기간은 항상 아직 안 지난 날짜를 포함하는데, 그 구간에 이미 거래가
+    있는 것처럼(미래 거래) 잘못 합산되면 실적이 부풀려진다.
+    """
+
+    def test_아직_지나지_않은_기간의_거래는_실적에_안_잡힌다(self):
+        card = _card(1)
+        # 2단계: 30만원 미만 3%, 이상 10%.
+        rules = {
+            1: [
+                BenefitRule(1, 1, 0, 300_000, "ONLINE", Decimal("0.03"), None, 9, True),
+                BenefitRule(2, 1, 300_000, None, "ONLINE", Decimal("0.10"), None, 9, True),
+            ]
+        }
+        transactions = [
+            # "오늘" 후보(AS_OF=2026-08-25)가 참조하는 전월(7월) 실적 — 완전히
+            # 지난 기간이라 그대로 집계된다.
+            Transaction(
+                txn_date=date(2026, 7, 15),
+                merchant="온라인몰",
+                amount=100_000,
+                category="ONLINE",
+                payment_type=PaymentType.LUMP,
+                card_id=1,
+            ),
+            # "미룬" 후보(다음 마감 2026-08-31 다음날인 2026-09-01)가 참조하는
+            # 전월(8월) 실적 중 오늘(8/25) 이전 — 실제로 지난 부분이라 잡혀야 함.
+            Transaction(
+                txn_date=date(2026, 8, 10),
+                merchant="온라인몰",
+                amount=250_000,
+                category="ONLINE",
+                payment_type=PaymentType.LUMP,
+                card_id=1,
+            ),
+            # 오늘(8/25) 이후, 즉 아직 지나지 않은 날짜 — 실제로는 존재할 수
+            # 없는 데이터지만, 캡이 없으면 이 값이 그대로 합산돼 실적이
+            # 부풀려진다는 걸 보이기 위한 회귀 테스트다.
+            Transaction(
+                txn_date=date(2026, 8, 28),
+                merchant="온라인몰",
+                amount=500_000,
+                category="ONLINE",
+                payment_type=PaymentType.LUMP,
+                card_id=1,
+            ),
+        ]
+
+        result = evaluate_route(
+            owned_cards=[_owned(1)],
+            cards_by_id={1: card},
+            rules_by_card=rules,
+            exclusions_by_card={1: []},
+            transactions=transactions,
+            amount=1_000_000,
+            category="ONLINE",
+            as_of=AS_OF,
+            due_date=date(2026, 9, 5),
+        )
+
+        # 캡이 없다면(버그) 미룬 후보의 실적이 250,000+500,000=750,000원이 되어
+        # 10% 구간(100,000원 할인)으로 오늘(3% 구간, 30,000원)을 이겨버린다.
+        # 캡이 맞다면 미룬 후보도 250,000원(3% 구간, 30,000원)에 머물러
+        # 오늘과 동률이 되고, 동률 우선순위(더 이른 날짜)에 따라 오늘이 이긴다.
+        assert result.best.pay_date == AS_OF
+        assert result.best.perf_current == 100_000
+        assert result.best.expected_discount == 30_000

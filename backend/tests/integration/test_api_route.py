@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
@@ -115,10 +116,32 @@ class TestRouteHappyPath:
             assert row is not None
             assert row[0] == body["best"]["cardId"]
 
-    def test_보유_카드_수만큼_후보_총계가_잡힌다(self, client: TestClient):
-        # 페르소나 2(INSTALLMENT_HEAVY)는 카드 3장을 보유한다(personas.seed.sql).
+    def test_dueDate_생략시_기본_30일_창이_적용된다(self, client: TestClient):
+        # 페르소나 2(INSTALLMENT_HEAVY)는 카드 A/B/C를 보유한다(personas.seed.sql).
+        # api-spec.yaml: dueDate "생략 시 오늘부터 30일" — 이 기본값을
+        # API 계층(route.py)이 실제로 적용하는지 확인한다. 안 그러면
+        # dueDate를 안 보내는 화면에서는 결제일 조합 탐색이 영영 안 켜진다
+        # (하영님 리뷰, 2026-08-31).
+        #
+        # 30일 창이면 카드 3장 전부 결제일 조합(오늘/마감일 다음날)이 다
+        # 생긴다. 무이자 할부가 BOTH 제외(실적·할인 모두)인 카드 A·B는
+        # 일시불만 시도해 날짜 2개씩(가지치기 각 2개), PERFORMANCE만
+        # 제외라 할인이 살아있는 카드 C는 날짜 2개 x 결제방식 2개=4개
+        # (가지치기 없음): 2+2+4=8, 가지치기 2+2=4.
         body = _route(client, personaId=2).json()
-        assert body["computeMeta"]["candidatesTotal"] == 3
+
+        assert body["computeMeta"]["candidatesTotal"] == 8
+        assert body["computeMeta"]["candidatesPruned"] == 4
+
+    def test_dueDate를_짧게_주면_결제일_조합이_줄어든다(self, client: TestClient):
+        # dueDate를 오늘로 좁히면 "미룬 후보" 자체가 만들어지지 않아
+        # 카드당 결제방식 개수만큼만 시도된다 — 기본 30일 창과 대비되는
+        # 경계 동작을 확인한다.
+        today = date.today().isoformat()
+        body = _route(client, personaId=2, dueDate=today).json()
+
+        assert body["computeMeta"]["candidatesTotal"] == 4
+        assert body["computeMeta"]["candidatesPruned"] == 2
 
 
 class TestRouteValidation:

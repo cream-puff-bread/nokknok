@@ -17,7 +17,7 @@ from __future__ import annotations
 import time
 from collections import defaultdict
 from dataclasses import asdict
-from datetime import date
+from datetime import date, timedelta
 from typing import Annotated, TypeVar
 
 from fastapi import APIRouter, Depends
@@ -50,6 +50,12 @@ router = APIRouter(prefix="/api", tags=["route"])
 
 SessionDep = Annotated[Session, Depends(get_db_session)]
 LlmDep = Annotated[LlmClient | None, Depends(get_explanation_client)]
+
+# contracts/api-spec.yaml: RouteRequest.dueDate "생략 시 오늘부터 30일".
+# 프론트가 아직 이 값을 안 보내는데(feat/route-result-screen), 계약의
+# 기본값을 여기서 적용하지 않으면 엔진의 결제일 조합 탐색(evaluate_route의
+# due_date)이 실제 화면에서는 영영 실행되지 않는다(하영님 리뷰, 2026-08-31).
+DEFAULT_DUE_DATE_WINDOW_DAYS = 30
 
 _T = TypeVar("_T")
 
@@ -94,6 +100,9 @@ def route_payment(session: SessionDep, llm: LlmDep, body: RouteRequest) -> Route
     rules_by_card = _group_by_card_id(card_repo.list_benefit_rules(session, all_card_ids))
     exclusions_by_card = _group_by_card_id(card_repo.list_exclusions(session, all_card_ids))
 
+    as_of = date.today()
+    due_date = body.due_date or as_of + timedelta(days=DEFAULT_DUE_DATE_WINDOW_DAYS)
+
     started = time.perf_counter()
     result = evaluate_route(
         owned_cards=snapshot.cards,
@@ -103,7 +112,8 @@ def route_payment(session: SessionDep, llm: LlmDep, body: RouteRequest) -> Route
         transactions=snapshot.transactions,
         amount=body.amount,
         category=body.category,
-        as_of=date.today(),
+        as_of=as_of,
+        due_date=due_date,
     )
     elapsed_ms = int((time.perf_counter() - started) * 1000)
 
