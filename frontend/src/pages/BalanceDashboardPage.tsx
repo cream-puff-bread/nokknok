@@ -1,12 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { fetchBalance } from '../api/balance';
+import { useCategoryLabels } from '../api/categories';
+import { runRoute } from '../api/route';
+import { runSimulation } from '../api/simulate';
 import {
   ApiRequestError,
   SLOW_REQUEST_MESSAGE,
   type SlowRequestPhase,
 } from '../api/client';
 import { EmptyState } from '../components/EmptyState';
+import { PurchaseBar } from '../components/PurchaseBar';
+import { Receipt } from '../components/Receipt';
 import { ErrorState } from '../components/ErrorState';
 import { PersonaNotFoundAction } from '../components/PersonaNotFoundAction';
 import { Skeleton } from '../components/Skeleton';
@@ -15,8 +20,31 @@ import {
   formatWon,
   type ApiErrorCode,
   type BalanceResponse,
+  type DeadPoint,
   type FixedExpense,
+  type ParsedQuery,
+  type RouteResponse,
 } from '../types/contract';
+
+/**
+ * 입력 한 번으로 두 답을 모은다 — "어느 카드로" 와 "그래서 잔고가 어떻게".
+ *
+ * 질의 해석이 시뮬레이션 응답에 들어 있어 순서가 정해진다(해석 결과가 있어야
+ * 라우팅에 넘길 금액·카테고리를 안다). 그래서 시뮬레이션이 돌아오는 즉시
+ * 영수증을 먼저 띄우고 카드 칸만 마저 채운다 — 둘 다 기다리면 4초 넘게
+ * 빈 화면을 보게 된다.
+ */
+type PurchaseState =
+  | { status: 'idle' }
+  | { status: 'parsing' }
+  | {
+      status: 'done';
+      purchase: ParsedQuery;
+      deadPoint: DeadPoint | null;
+      route: RouteResponse | null;
+      routeLoading: boolean;
+    }
+  | { status: 'error'; message: string };
 
 type LoadState =
   | { status: 'loading' }
@@ -34,6 +62,53 @@ export function BalanceDashboardPage({
 }: BalanceDashboardPageProps) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [slowPhase, setSlowPhase] = useState<SlowRequestPhase | null>(null);
+  const [purchase, setPurchase] = useState<PurchaseState>({ status: 'idle' });
+  const [purchaseSlow, setPurchaseSlow] = useState<SlowRequestPhase | null>(null);
+  const categoryLabel = useCategoryLabels();
+  const receiptRef = useRef<HTMLDivElement | null>(null);
+
+  // 입력은 화면 맨 아래에서 하는데 답은 위에 뜬다. 스크롤을 옮겨 주지 않으면
+  // 방금 누른 사람이 아무 일도 안 일어났다고 느낀다.
+  useEffect(() => {
+    if (purchase.status !== 'done') return;
+    receiptRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [purchase.status]);
+
+  const askPurchase = useCallback(
+    (query: string) => {
+      setPurchase({ status: 'parsing' });
+      setPurchaseSlow(null);
+      runSimulation(personaId, query, { onSlowRequest: setPurchaseSlow })
+        .then((simulation) => {
+          setPurchase({
+            status: 'done',
+            purchase: simulation.parsed,
+            deadPoint: simulation.deadPoint,
+            route: null,
+            routeLoading: true,
+          });
+          return runRoute(personaId, simulation.parsed.amount, simulation.parsed.category)
+            .then((route) =>
+              setPurchase((prev) =>
+                prev.status === 'done' ? { ...prev, route, routeLoading: false } : prev,
+              ),
+            )
+            // 카드 추천이 실패해도 잔고 답은 이미 화면에 있다. 영수증을
+            // 통째로 지우지 않고 그 칸만 비운다.
+            .catch(() =>
+              setPurchase((prev) =>
+                prev.status === 'done' ? { ...prev, routeLoading: false } : prev,
+              ),
+            );
+        })
+        .catch((err: unknown) => {
+          const message =
+            err instanceof ApiRequestError ? err.message : '계산하지 못했습니다.';
+          setPurchase({ status: 'error', message });
+        });
+    },
+    [personaId],
+  );
 
   const load = useCallback(() => {
     setState({ status: 'loading' });
@@ -81,7 +156,8 @@ export function BalanceDashboardPage({
   const { accountBalance, fixedTotal, availableBalance, fixedExpenses } = state.balance;
 
   return (
-    <section className="space-y-6">
+    // 아래 고정 바가 본문 끝을 가리지 않도록 여백을 둔다.
+    <section className="space-y-6 pb-32">
       <div className="bg-blue-50 rounded-xl border border-blue-200 p-6">
         <p className="text-sm text-gray-500 mb-1">가용잔고</p>
         <p
@@ -112,6 +188,24 @@ export function BalanceDashboardPage({
         )}
       </div>
 
+      {purchase.status === 'error' && <ErrorState message={purchase.message} />}
+
+      {purchase.status === 'done' && (
+        // 답은 잔고 바로 아래에 둔다. 목록 끝에 붙이면 바에 입력한 사람이
+        // 한참 아래로 내려가야 답을 본다.
+        <div ref={receiptRef} className="scroll-mt-32">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">이 결제, 해도 될까요</h3>
+          <Receipt
+            purchase={purchase.purchase}
+            categoryLabel={categoryLabel}
+            route={purchase.route}
+            routeLoading={purchase.routeLoading}
+            deadPoint={purchase.deadPoint}
+            forecastLoaded
+          />
+        </div>
+      )}
+
       <div>
         <h3 className="text-lg font-semibold text-gray-900 mb-1">확정 지출</h3>
         <p className="text-sm text-gray-500 mb-4">
@@ -127,6 +221,12 @@ export function BalanceDashboardPage({
           </ul>
         )}
       </div>
+
+      <PurchaseBar
+        running={purchase.status === 'parsing' || (purchase.status === 'done' && purchase.routeLoading)}
+        slowMessage={purchaseSlow ? SLOW_REQUEST_MESSAGE[purchaseSlow] : null}
+        onSubmit={askPurchase}
+      />
     </section>
   );
 }
