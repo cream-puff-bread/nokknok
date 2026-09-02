@@ -105,19 +105,25 @@ export function ForecastToggle({ personaId, purchase, asked }: ForecastTogglePro
     [cache, personaId, purchase],
   );
 
-  // 물어본 방식이 적자로 끝나면 나눠 내는 쪽을 미리 계산해 둔다. 눌러 봐야
-  // 알 수 있으면 "나눠 내면 괜찮다" 는 사실을 아무도 발견하지 못한다.
+  // 물어본 방식이 적자로 끝나면 나머지 방식도 미리 계산해 둔다.
+  //
+  // 눌러 봐야 알 수 있으면 "나눠 내면 몇 달을 번다" 는 사실을 아무도 발견하지
+  // 못한다 — URL 만 받아 혼자 둘러보는 사람에게는 특히 그렇다. 결과를 버튼에
+  // 바로 적어 두면 누르기 전에 비교가 끝난다.
+  //
+  // 구조화 입력이라 LLM 을 타지 않아 한 건에 1초가 안 걸린다.
   useEffect(() => {
     if (asked.deadPoint === null) return;
-    const safer = variants.find((v) => v.key !== ASKED_KEY);
-    if (safer === undefined || cache[safer.key] !== undefined) return;
-    runSimulationForPurchase(personaId, {
-      ...purchase,
-      paymentType: safer.paymentType,
-      installmentMonths: safer.installmentMonths,
-    })
-      .then((result) => setCache((prev) => ({ ...prev, [safer.key]: result })))
-      .catch(() => undefined);
+    for (const variant of variants) {
+      if (variant.key === ASKED_KEY) continue;
+      runSimulationForPurchase(personaId, {
+        ...purchase,
+        paymentType: variant.paymentType,
+        installmentMonths: variant.installmentMonths,
+      })
+        .then((result) => setCache((prev) => ({ ...prev, [variant.key]: result })))
+        .catch(() => undefined);
+    }
     // 최초 1회만 돈다. cache 를 의존성에 넣으면 채워질 때마다 다시 돈다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -149,10 +155,18 @@ export function ForecastToggle({ personaId, purchase, asked }: ForecastTogglePro
               }`}
             >
               {variant.label}
-              {/* 미리 계산해 둔 방식 중 적자가 없는 것을 표시한다. 눌러 보기
-                  전에 어느 쪽이 안전한지 알 수 있어야 한다. */}
-              {forecast !== undefined && forecast.deadPoint === null && (
-                <span className="ml-1.5 text-xs text-emerald-600">안전</span>
+              {/* 결과를 버튼에 적어 둔다. 나눠 내면 적자가 사라지는지, 아니면
+                  몇 달 뒤로 밀리는지가 누르기 전에 보여야 비교가 된다. */}
+              {forecast !== undefined && (
+                <span
+                  className={`ml-1.5 text-xs ${
+                    forecast.deadPoint === null ? 'text-emerald-600' : 'text-amber-600'
+                  }`}
+                >
+                  {forecast.deadPoint === null
+                    ? '안전'
+                    : `${formatMonth(forecast.deadPoint.month)} 적자`}
+                </span>
               )}
             </button>
           );

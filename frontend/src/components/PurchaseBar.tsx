@@ -2,6 +2,27 @@ import { useState, type FormEvent } from 'react';
 
 import { MAX_QUERY_LENGTH } from '../api/simulate';
 
+/**
+ * 눌러 보는 예시.
+ *
+ * URL 만 받아 혼자 둘러보는 사람에게는 "무엇을 물어볼 수 있는지" 가 안 보인다.
+ * 빈 입력창은 아무것도 알려주지 않고, placeholder 하나로는 이 서비스가 자연어를
+ * 어디까지 알아듣는지 드러나지 않는다.
+ *
+ * 네 문장 모두 실제 파서에 넣어 확인했다 — 금액·결제 방식·카테고리가 의도대로
+ * 해석되고 카드 추천과 근거 조항까지 나온다. 문장을 바꿀 때는 다시 확인해야
+ * 한다. 파싱이 어긋나는 예시를 눌러 보게 하는 건 없느니만 못하다.
+ *
+ * 첫 번째는 일부러 큰 금액이다. 잔고가 적자로 도는 경우라야 결제 방식을 바꿔
+ * 보는 토글이 의미를 갖는다.
+ */
+const SUGGESTIONS = [
+  '아이폰 180만원 일시불로 사도 될까?',
+  '외식 8만원 어느 카드가 유리해?',
+  '이마트 장보기 25만원',
+  '주유 12만원 어떤 카드가 좋아?',
+];
+
 interface PurchaseBarProps {
   running: boolean;
   /** 5초·15초를 넘겼을 때 보여줄 안내. 없으면 그리지 않는다. */
@@ -55,10 +76,23 @@ export function PurchaseBar({ running, slowMessage, onSubmit }: PurchaseBarProps
             {running ? '계산 중…' : '계산하기'}
           </button>
         </div>
-        {running && (
+        {running ? (
           <p className="mt-2 text-xs text-gray-500">
             {slowMessage ?? '질의를 해석하고 카드와 잔고를 함께 계산합니다.'}
           </p>
+        ) : (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {SUGGESTIONS.map((example) => (
+              <button
+                key={example}
+                type="button"
+                onClick={() => onSubmit(example)}
+                className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-500 transition-colors hover:border-gray-300 hover:text-gray-900"
+              >
+                {example}
+              </button>
+            ))}
+          </div>
         )}
       </div>
     </form>
