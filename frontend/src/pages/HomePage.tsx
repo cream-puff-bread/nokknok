@@ -13,7 +13,7 @@ import { EmptyState } from '../components/EmptyState';
 import { CardsSection } from '../components/CardsSection';
 import { PurchaseBar } from '../components/PurchaseBar';
 import { ForecastToggle } from '../components/ForecastToggle';
-import { ReceiptDialog } from '../components/ReceiptDialog';
+import { Modal } from '../components/Modal';
 import { Receipt } from '../components/Receipt';
 import { ErrorState } from '../components/ErrorState';
 import { PersonaNotFoundAction } from '../components/PersonaNotFoundAction';
@@ -166,77 +166,83 @@ export function HomePage({
 
   return (
     <section className="space-y-6">
-      <div className="bg-blue-50 rounded-xl border border-blue-200 p-6">
-        <p className="text-sm text-gray-500 mb-1">가용잔고</p>
-        <p
-          className={`text-3xl font-bold tabular-nums ${
-            availableBalance < 0 ? 'text-red-600' : 'text-gray-900'
-          }`}
-        >
-          {formatWon(availableBalance)}
-        </p>
-        <dl className="flex gap-6 mt-4">
-          <div>
-            <dt className="text-xs text-gray-500 mb-1">통장 잔액</dt>
-            <dd className="text-sm text-gray-900 tabular-nums">
-              {formatWon(accountBalance)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-gray-500 mb-1">확정 지출</dt>
-            <dd className="text-sm text-gray-900 tabular-nums">
-              −{formatWon(fixedTotal)}
-            </dd>
-          </div>
-        </dl>
-        {availableBalance < 0 && (
-          <p className="text-sm text-red-600 mt-4">
-            확정 지출이 통장 잔액을 넘습니다. 이미 자금이 부족한 상태입니다.
+      {/* 잔고와 질문을 왼쪽에, 카드를 오른쪽에 둔다. 세로 한 줄로 쌓으면
+          노트북 가로를 절반 넘게 비우게 되고, 심사위원은 노트북으로 본다
+          (contracts/ui-system.md). 좁은 화면에서는 한 줄로 돌아간다. */}
+      <div className="grid gap-8 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] md:items-start">
+        <div className="space-y-6">
+        <div className="bg-blue-50 rounded-xl border border-blue-200 p-6">
+          <p className="text-sm text-gray-500 mb-1">가용잔고</p>
+          <p
+            className={`text-3xl font-bold tabular-nums ${
+              availableBalance < 0 ? 'text-red-600' : 'text-gray-900'
+            }`}
+          >
+            {formatWon(availableBalance)}
           </p>
-        )}
-      </div>
+          <dl className="flex gap-6 mt-4">
+            <div>
+              <dt className="text-xs text-gray-500 mb-1">통장 잔액</dt>
+              <dd className="text-sm text-gray-900 tabular-nums">
+                {formatWon(accountBalance)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-gray-500 mb-1">확정 지출</dt>
+              <dd className="text-sm text-gray-900 tabular-nums">
+                −{formatWon(fixedTotal)}
+              </dd>
+            </div>
+          </dl>
+          {availableBalance < 0 && (
+            <p className="text-sm text-red-600 mt-4">
+              확정 지출이 통장 잔액을 넘습니다. 이미 자금이 부족한 상태입니다.
+            </p>
+          )}
+        </div>
 
-      <div className="space-y-3">
-        <PurchaseBar
-          running={asking}
-          slowMessage={purchaseSlow ? SLOW_REQUEST_MESSAGE[purchaseSlow] : null}
-          onSubmit={askPurchase}
-        />
-
-        {askError !== null && <ErrorState message={askError} />}
-
-        {/* 답이 아니라 물어본 것만 남긴다. 결과를 여기에도 펼치면 모달과
-            같은 내용이 두 번 있는 것처럼 읽힌다. 누르면 그 때 계산한 답이
-            그대로 다시 열린다 — 다시 계산하지 않는다. */}
-        {history.length > 0 && (
-          <ul className="space-y-1">
-            {history.map((entry) => (
-              <li key={entry.id}>
-                <button
-                  type="button"
-                  onClick={() => setOpenId(entry.id)}
-                  className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-500 transition-colors hover:bg-white hover:text-gray-900"
-                >
-                  <span className="text-gray-400">↳</span> {entry.query}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <ReceiptDialog open={open !== null} onClose={() => setOpenId(null)}>
-        {open !== null && (
-          <ReceiptWithChart
-            personaId={personaId}
-            purchase={open}
-            categoryLabel={categoryLabel}
+        <div className="space-y-3">
+          <PurchaseBar
+            running={asking}
+            slowMessage={purchaseSlow ? SLOW_REQUEST_MESSAGE[purchaseSlow] : null}
+            onSubmit={askPurchase}
           />
-        )}
-      </ReceiptDialog>
 
-      <CardsSection personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
+          {askError !== null && <ErrorState message={askError} />}
 
+          {/* 답이 아니라 물어본 것만 남긴다. 결과를 여기에도 펼치면 모달과
+              같은 내용이 두 번 있는 것처럼 읽힌다. 누르면 그 때 계산한 답이
+              그대로 다시 열린다 — 다시 계산하지 않는다. */}
+          {history.length > 0 && (
+            <ul className="space-y-1">
+              {history.map((entry) => (
+                <li key={entry.id}>
+                  <button
+                    type="button"
+                    onClick={() => setOpenId(entry.id)}
+                    className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-500 transition-colors hover:bg-white hover:text-gray-900"
+                  >
+                    <span className="text-gray-400">↳</span> {entry.query}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <Modal open={open !== null} title="이 결제, 해도 될까요" onClose={() => setOpenId(null)}>
+          {open !== null && (
+            <ReceiptWithChart
+              personaId={personaId}
+              purchase={open}
+              categoryLabel={categoryLabel}
+            />
+          )}
+        </Modal>
+        </div>
+
+        <CardsSection personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
+      </div>
       <div>
         <h3 className="text-lg font-semibold text-gray-900 mb-1">확정 지출</h3>
         <p className="text-sm text-gray-500 mb-4">

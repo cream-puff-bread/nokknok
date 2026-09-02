@@ -6,7 +6,8 @@ import {
   SLOW_REQUEST_MESSAGE,
   type SlowRequestPhase,
 } from '../api/client';
-import { CardDeck } from './CardDeck';
+import { CardStack } from './CardStack';
+import { Modal } from './Modal';
 import { EmptyState } from './EmptyState';
 import { ErrorState } from './ErrorState';
 import { PersonaNotFoundAction } from './PersonaNotFoundAction';
@@ -39,11 +40,8 @@ interface CardsSectionProps {
 export function CardsSection({ personaId, onNavigateToPersonas }: CardsSectionProps) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [slowPhase, setSlowPhase] = useState<SlowRequestPhase | null>(null);
+  // 혜택표는 넓어서 좁은 칸에 펴기 어렵다. 영수증과 같은 모달로 띄운다.
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  // 덱은 늘 한 장을 가운데 세우지만 상세는 눌러야 열린다. 한 화면에 잔고·
-  // 카드·질문·답이 다 올라가는데 9행짜리 혜택표를 처음부터 펴 두면 그것만으로
-  // 화면 절반을 먹는다. 마우스를 올리면 실적까지는 보이므로 훑는 데 지장 없다.
-  const [expanded, setExpanded] = useState(false);
 
   const load = useCallback(() => {
     setState({ status: 'loading' });
@@ -51,7 +49,6 @@ export function CardsSection({ personaId, onNavigateToPersonas }: CardsSectionPr
     fetchOwnedCards(personaId, { onSlowRequest: setSlowPhase })
       .then((cards) => {
         setState({ status: 'loaded', cards });
-        setSelectedId(cards[0]?.cardId ?? null);
       })
       .catch((err: unknown) => {
         if (err instanceof ApiRequestError) {
@@ -71,18 +68,18 @@ export function CardsSection({ personaId, onNavigateToPersonas }: CardsSectionPr
 
   return (
     <section className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-1">내 카드</h3>
-        <p className="text-sm text-gray-500">
-          카드에 마우스를 올리면 이번 실적이, 카드를 누르면 혜택 구간과 제외 항목이 펼쳐집니다.
+      <div className="flex items-baseline justify-between gap-4">
+        <h3 className="text-lg font-semibold text-gray-900">내 카드</h3>
+        <p className="text-xs text-gray-500">
+          {state.status === 'loaded' ? `${state.cards.length}장` : ''}
         </p>
       </div>
 
       {state.status === 'loading' && (
-        <div className="space-y-6">
+        <div className="space-y-3">
           {slowPhase && <p className="text-xs text-gray-500">{SLOW_REQUEST_MESSAGE[slowPhase]}</p>}
-          <Skeleton className="h-64 w-full rounded-2xl" />
-          <Skeleton className="h-64 w-full rounded-xl" />
+          <Skeleton className="h-44 w-full rounded-2xl" />
+          <Skeleton className="h-44 w-full rounded-2xl" />
         </div>
       )}
 
@@ -101,16 +98,15 @@ export function CardsSection({ personaId, onNavigateToPersonas }: CardsSectionPr
           <EmptyState message="보유한 카드가 없습니다." />
         ) : (
           <>
-            <CardDeck
-              cards={state.cards}
-              selectedId={selected?.cardId ?? state.cards[0].cardId}
-              onSelect={(cardId) => {
-                setSelectedId(cardId);
-                setExpanded(true);
-              }}
-            />
+            <CardStack cards={state.cards} onSelect={(card) => setSelectedId(card.cardId)} />
 
-            {selected && expanded && <CardDetail card={selected} />}
+            <Modal
+              open={selected !== null}
+              title={selected?.cardName ?? '카드'}
+              onClose={() => setSelectedId(null)}
+            >
+              {selected !== null && <CardDetail card={selected} />}
+            </Modal>
           </>
         ))}
     </section>
@@ -124,7 +120,7 @@ function CardDetail({ card }: { card: OwnedCard }) {
       : 0;
 
   return (
-    <article className="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
+    <article className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs text-gray-500 mb-1">

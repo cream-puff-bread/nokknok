@@ -1,16 +1,17 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 
-interface ReceiptDialogProps {
+interface ModalProps {
   open: boolean;
+  title: string;
   onClose: () => void;
   children: ReactNode;
 }
 
 /**
- * 결과를 띄우는 가운데 모달.
+ * 가운데 모달.
  *
- * 답이 나왔는데 그 아래로 카드 덱과 확정 지출이 계속 이어지면 무엇이 답인지가
- * 흐려진다. 결제 확인창처럼 앞으로 끌어내 한 가지만 보게 한다.
+ * 결과나 상세를 앞으로 끌어내 한 가지만 보게 한다. 화면을 좌우로 나누면
+ * 폭이 좁아져 혜택표 같은 넓은 내용을 그 자리에 펴기 어렵기도 하다.
  *
  * 직접 만들지 않고 <dialog> 를 쓴다. 포커스 가두기, Escape 로 닫기, 바깥
  * 클릭, 배경 스크롤 잠금이 브라우저 기본 동작이라 손으로 구현하면 빠뜨리기
@@ -18,7 +19,7 @@ interface ReceiptDialogProps {
  *
  * 닫아도 결과는 페이지에 남는다. 실수로 닫았다고 계산을 다시 하게 만들지 않는다.
  */
-export function ReceiptDialog({ open, onClose, children }: ReceiptDialogProps) {
+export function Modal({ open, title, onClose, children }: ModalProps) {
   const ref = useRef<HTMLDialogElement | null>(null);
 
   useEffect(() => {
@@ -44,11 +45,11 @@ export function ReceiptDialog({ open, onClose, children }: ReceiptDialogProps) {
       onClick={(event) => {
         if (event.target === ref.current) onClose();
       }}
-      aria-label="결제 시뮬레이션 결과"
+      aria-label={title}
       className="m-auto w-[min(48rem,92vw)] max-h-[88vh] overflow-y-auto rounded-2xl border border-gray-200 bg-white p-0 shadow-2xl backdrop:bg-black/50"
     >
       <div className="sticky top-0 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
-        <h2 className="text-lg font-semibold text-gray-900">이 결제, 해도 될까요</h2>
+        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
         <button
           type="button"
           onClick={onClose}
