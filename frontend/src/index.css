@@ -2,3 +2,51 @@
    이 파일 외에 CSS 파일을 만들지 않는다. 스타일은 contracts/ui-system.md 의
    클래스 조합을 그대로 쓴다(.claude/skills/nokknok-frontend/SKILL.md). */
 @import 'tailwindcss';
+
+/* 다크/라이트 모드를 시스템 설정이 아니라 이용자가 직접 고르게 한다
+   (ThemeProvider가 <html>에 .dark를 붙였다 뗐다 한다) — Tailwind 4의
+   기본 dark: 는 prefers-color-scheme 기반이라 이 커스텀 variant로
+   바꿔야 class 기반 토글이 dark: 유틸리티에 반영된다. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* design/v2-boarding-pass-style 실험 토큰. Tailwind 4는 tailwind.config.js
+   없이 @theme 블록으로 토큰을 정의한다 — 이 파일 하나로 설정이 끝난다.
+
+   모노스페이스(Nanum Gothic Coding)는 폰트 자체가 별로라는 피드백으로
+   폐기했다. Pretendard로 교체 — 한글·영문 혼용 다크 SaaS 화면에서 가장
+   널리 쓰이는 산세리프이고, 굵기 단계가 넓어(강조 헤드라인 ~ 캡션) 이번
+   글래스모피즘 톤과도 잘 어울린다. */
+@theme {
+  --color-ink: #0a0e1a;
+  --font-sans: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+body {
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: #ffffff;
+  background-attachment: fixed;
+}
+
+.dark body {
+  background-color: var(--color-ink);
+  background-image: radial-gradient(ellipse 900px 500px at 50% -10%, rgba(99, 102, 241, 0.18), transparent);
+}
+
+/* 카드결제기 인트로가 페이드아웃하며 사라진 뒤 다음 페이지(AppLayout의
+   main)가 뚝 끊기지 않고 이어받아 나타나게 한다 — CardReaderIntro.tsx의
+   퇴장 애니메이션과 짝을 이룬다. 모든 라우트 전환에 공통 적용되므로
+   페이지마다 따로 넣지 않고 여기 한 번만 정의한다. */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-enter {
+  animation: page-enter 0.4s ease-out;
+}

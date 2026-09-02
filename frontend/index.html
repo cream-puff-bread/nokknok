@@ -4,6 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>넉넉</title>
+    <link
+      rel="stylesheet"
+      as="style"
+      crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css"
+    />
+    <script>
+      // React가 뜨기 전에 테마 class를 먼저 정해둔다 — 안 그러면 항상 라이트로
+      // 그렸다가 다크로 바뀌는 깜빡임이 매 새로고침마다 보인다.
+      // src/theme/ThemeProvider.tsx의 getInitialTheme과 우선순위를 맞춘다
+      // (localStorage > 시스템 설정 > 기본값 dark).
+      (function () {
+        try {
+          var stored = localStorage.getItem('nokknok-theme');
+          var dark =
+            stored === 'dark' ||
+            (stored !== 'light' && !window.matchMedia('(prefers-color-scheme: light)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

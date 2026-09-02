@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 
 import { AppLayout } from './components/AppLayout';
+import { CardReaderIntro } from './components/CardReaderIntro';
 import { BalanceDashboardPage } from './pages/BalanceDashboardPage';
 import { PersonaSelectPage } from './pages/PersonaSelectPage';
 import { RouteResultPage } from './pages/RouteResultPage';
@@ -11,6 +12,14 @@ import { TransactionUploadPage } from './pages/TransactionUploadPage';
 export interface RouteEntry {
   path: string;
   element: ReactElement;
+}
+
+// 카드결제기 인트로 연출이 배포 루트(/)의 콘텐츠다. 연출이 끝나면(또는
+// Skip) 이 래퍼가 /personas로 넘긴다. 실제 인증은 아니다(이 앱에는 로그인
+// 개념이 없다) — 순수하게 진입 연출이다.
+function IntroRoute() {
+  const navigate = useNavigate();
+  return <CardReaderIntro onComplete={() => navigate('/personas', { replace: true })} />;
 }
 
 // PersonaSelectPage는 onSelect 콜백 prop을 받을 뿐 라우팅을 모른다(컴포넌트를
@@ -90,10 +99,7 @@ const RouteResultRoute = withPersonaId((personaId, onNavigateToPersonas) => (
 // 새 라우트는 element 를 <AppLayout> 으로 감싼다. personaId 종속 화면이면
 // <AppLayout personaId={...}> 로 넘겨 탭이 뜨게 한다.
 export const routes: RouteEntry[] = [
-  // <Routes>는 매칭이 없으면 null을 렌더링한다. 배포 루트(/)가 그 상태로
-  // 나가면 헤더만 뜨고 본문이 빈다 — 심사위원이 맨 처음 여는 주소다.
-  // replace를 써서 뒤로가기에서 / ↔ /personas 루프가 안 생기게 한다.
-  { path: '/', element: <Navigate to="/personas" replace /> },
+  { path: '/', element: <IntroRoute /> },
   { path: '/personas', element: <PersonaSelectRoute /> },
   // 업로드는 페르소나와 무관한 별개 진입점이다(위 PersonaSelectRoute 주석
   // 참고) — personaId를 URL에 싣지 않는다.
