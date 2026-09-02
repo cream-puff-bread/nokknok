@@ -10,9 +10,9 @@ import {
   type SlowRequestPhase,
 } from '../api/client';
 import { EmptyState } from '../components/EmptyState';
-import { BalanceTrendChart } from '../components/BalanceTrendChart';
 import { CardsSection } from '../components/CardsSection';
 import { PurchaseBar } from '../components/PurchaseBar';
+import { ForecastToggle } from '../components/ForecastToggle';
 import { ReceiptDialog } from '../components/ReceiptDialog';
 import { Receipt } from '../components/Receipt';
 import { ErrorState } from '../components/ErrorState';
@@ -226,7 +226,13 @@ export function HomePage({
       </div>
 
       <ReceiptDialog open={open !== null} onClose={() => setOpenId(null)}>
-        {open !== null && <ReceiptWithChart purchase={open} categoryLabel={categoryLabel} />}
+        {open !== null && (
+          <ReceiptWithChart
+            personaId={personaId}
+            purchase={open}
+            categoryLabel={categoryLabel}
+          />
+        )}
       </ReceiptDialog>
 
       <CardsSection personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
@@ -275,30 +281,29 @@ function FixedExpenseRow({ expense }: { expense: FixedExpense }) {
   );
 }
 
-/** 영수증과 6개월 추이를 한 덩어리로. 모달과 페이지가 같은 것을 보여준다. */
+/** 영수증과 결제 방식별 6개월 추이를 한 덩어리로. */
 function ReceiptWithChart({
+  personaId,
   purchase,
   categoryLabel,
 }: {
+  personaId: number;
   purchase: AskEntry;
   categoryLabel: (code: string) => string;
 }) {
   return (
-    <>
+    <div className="space-y-6">
       <Receipt
         purchase={purchase.purchase}
         categoryLabel={categoryLabel}
         route={purchase.route}
         routeLoading={purchase.routeLoading}
-        deadPoint={purchase.simulation.deadPoint}
-        forecastLoaded
       />
-      <div className="mt-4">
-        <BalanceTrendChart
-          scenarios={purchase.simulation.scenarios}
-          deadPoint={purchase.simulation.deadPoint}
-        />
-      </div>
-    </>
+      <ForecastToggle
+        personaId={personaId}
+        purchase={purchase.purchase}
+        asked={purchase.simulation}
+      />
+    </div>
   );
 }

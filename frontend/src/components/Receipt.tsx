@@ -3,8 +3,6 @@ import { Skeleton } from './Skeleton';
 import {
   formatWon,
   PAYMENT_TYPE_LABEL,
-  SCENARIO_LABEL,
-  type DeadPoint,
   type ParsedQuery,
   type RouteResponse,
 } from '../types/contract';
@@ -15,10 +13,6 @@ interface ReceiptProps {
   /** 어느 카드로 결제할지. 아직 계산 중이면 loading 을 켠다. */
   route?: RouteResponse | null;
   routeLoading?: boolean;
-  /** 결제 후 잔고가 어떻게 되는지. 없으면 그 칸을 그리지 않는다. */
-  deadPoint?: DeadPoint | null;
-  forecastLoaded?: boolean;
-  forecastLoading?: boolean;
 }
 
 /**
@@ -37,9 +31,6 @@ export function Receipt({
   categoryLabel,
   route,
   routeLoading = false,
-  deadPoint,
-  forecastLoaded = false,
-  forecastLoading = false,
 }: ReceiptProps) {
   const best = route?.best ?? null;
 
@@ -105,30 +96,6 @@ export function Receipt({
         )}
       </dl>
 
-      {(forecastLoading || forecastLoaded) && (
-        <div className="px-6 py-4 border-b border-dashed border-gray-300">
-          {forecastLoading ? (
-            <Skeleton className="h-4 w-64" />
-          ) : deadPoint ? (
-            // 이 서비스가 존재하는 이유가 이 한 줄이다. 할인만 보고 결제하면
-            // 놓치는 것을 여기서 잡는다.
-            <p className="text-sm text-red-600">
-              결제 후 <span className="font-semibold">{formatMonth(deadPoint.month)}</span> 잔고가{' '}
-              <span className="tabular-nums font-semibold">{formatWon(deadPoint.shortage)}</span>{' '}
-              부족해집니다
-              <span className="text-gray-500">
-                {' '}
-                ({SCENARIO_LABEL[deadPoint.level]} 시나리오)
-              </span>
-            </p>
-          ) : (
-            <p className="text-sm text-emerald-600">
-              결제해도 6개월 안에 잔고가 마이너스로 가지 않습니다
-            </p>
-          )}
-        </div>
-      )}
-
       {best && best.clauses.length > 0 && (
         // 영수증 하단 약관 자리에 진짜 약관 조항이 들어간다.
         <footer className="px-6 py-4 bg-gray-50">
@@ -146,10 +113,4 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <dd className="text-sm text-gray-900 text-right">{children}</dd>
     </div>
   );
-}
-
-/** '2026-09' 을 '9월' 로. 차트 축과 표기를 맞춘다(ui-system.md). */
-function formatMonth(month: string): string {
-  const parsed = Number(month.slice(5, 7));
-  return Number.isNaN(parsed) ? month : `${parsed}월`;
 }
