@@ -305,18 +305,18 @@ function ReceiptWithChart({
   categoryLabel: (code: string) => string;
 }) {
   return (
-    <div className="space-y-6">
-      <Receipt
-        purchase={purchase.purchase}
-        categoryLabel={categoryLabel}
-        route={purchase.route}
-        routeLoading={purchase.routeLoading}
-      />
-      <ForecastToggle
-        personaId={personaId}
-        purchase={purchase.purchase}
-        asked={purchase.simulation}
-      />
-    </div>
+    <Receipt
+      purchase={purchase.purchase}
+      categoryLabel={categoryLabel}
+      route={purchase.route}
+      routeLoading={purchase.routeLoading}
+      forecast={
+        <ForecastToggle
+          personaId={personaId}
+          purchase={purchase.purchase}
+          asked={purchase.simulation}
+        />
+      }
+    />
   );
 }

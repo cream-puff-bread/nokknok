@@ -132,9 +132,7 @@ export function ForecastToggle({ personaId, purchase, asked }: ForecastTogglePro
   const loading = loadingKey === activeKey;
 
   return (
-    <section>
-      <h4 className="text-xs text-gray-500 mb-2">향후 6개월 잔고</h4>
-
+    <div>
       <div
         role="radiogroup"
         aria-label="결제 방식"
@@ -199,7 +197,7 @@ export function ForecastToggle({ personaId, purchase, asked }: ForecastTogglePro
           <BalanceTrendChart scenarios={active.scenarios} deadPoint={active.deadPoint} />
         </>
       )}
-    </section>
+    </div>
   );
 }
 
