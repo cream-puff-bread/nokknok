@@ -48,7 +48,9 @@ function PersonaSwitcher({ personaId }: { personaId: number }) {
       <select
         value={personaId}
         onChange={(e) => navigate(`/balance/${e.target.value}`)}
-        className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none"
+        // select 는 가장 긴 선택지 너비를 그대로 갖는다. 상한을 두지 않으면
+        // 사례 이름이 길어질 때마다 헤더가 밀린다.
+        className="max-w-[10rem] rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none"
       >
         {personas.map((p) => (
           <option key={p.id} value={p.id}>
@@ -68,8 +70,11 @@ export function AppLayout({ personaId, children }: AppLayoutProps) {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white">
-        <div className="max-w-5xl mx-auto px-4 md:px-8 py-4 flex items-start justify-between gap-4">
-          <div>
+        {/* 좁은 화면에서는 오른쪽 묶음을 아랫줄로 내린다. 감싸지 않으면
+            사례 이름이 긴 날 헤더가 화면보다 넓어져 페이지 전체에 가로
+            스크롤이 생긴다. */}
+        <div className="max-w-5xl mx-auto px-4 md:px-8 py-4 flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
               <Link
                 to={home}

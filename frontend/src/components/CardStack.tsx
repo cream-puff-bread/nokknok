@@ -133,7 +133,7 @@ export function CardStack({ cards, onSelect }: CardStackProps) {
                     </span>
                   )}
                   {card.isDemo && (
-                    <span className="rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/70">
+                    <span className="rounded-md bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white/70">
                       시연용
                     </span>
                   )}
@@ -153,7 +153,7 @@ export function CardStack({ cards, onSelect }: CardStackProps) {
                     style={{ width: `${progressRatio(card) * 100}%` }}
                   />
                 </div>
-                <p className="mt-1 text-[10px] text-white/60">
+                <p className="mt-1 text-[11px] text-white/60">
                   {active ? '혜택 적용 중' : `${formatWon(remaining)} 더 쓰면 혜택 시작`}
                 </p>
               </div>

@@ -60,11 +60,11 @@ export function BankCard({
       <div className="relative h-full p-4 flex flex-col justify-between">
         <div className="flex items-start justify-between">
           <div>
-            <span className="block text-xs font-bold uppercase tracking-wide text-white">
+            <span className="block text-sm font-bold uppercase tracking-wide text-white">
               {brand}
             </span>
             {subtitle && (
-              <span className="block text-[10px] uppercase tracking-wide text-white/60">
+              <span className="block text-[11px] uppercase tracking-wide text-white/60">
                 {subtitle}
               </span>
             )}
@@ -84,9 +84,9 @@ export function BankCard({
               <div className="absolute inset-y-0 left-2/3 w-px bg-yellow-800/40" />
               <div className="absolute inset-x-0 top-1/2 h-px bg-yellow-800/40" />
             </div>
-            <p className="text-sm font-bold text-white truncate">{title}</p>
+            <p className="text-base font-bold text-white truncate">{title}</p>
             {footer && (
-              <p className="text-[10px] uppercase tracking-wide text-white/50 mt-0.5">{footer}</p>
+              <p className="text-[11px] uppercase tracking-wide text-white/50 mt-0.5">{footer}</p>
             )}
             {children}
           </div>
