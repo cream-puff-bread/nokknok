@@ -10,6 +10,15 @@ interface BankCardProps {
   title: string;
   footer?: string;
   demoBadge?: ReactNode;
+  /**
+   * 카드 이름 아래에 덧붙일 내용. 실적 진행처럼 카드마다 달라지는 것을
+   * 넣는다 — 마우스를 올렸을 때만 보여주는 식으로 쓸 수 있다.
+   *
+   * 추가한 이유: 카드 덱(CardStack)에서 실적 금액과 진행 막대를 카드 면
+   * 안에 넣어야 했는데 기존 슬롯은 모두 문자열이라 넣을 자리가 없었다.
+   * 이 컴포넌트를 만드신 분(#37)께 알렸다 — 원본에 흡수해도 좋다.
+   */
+  children?: ReactNode;
   className?: string;
 }
 
@@ -20,6 +29,7 @@ export function BankCard({
   title,
   footer,
   demoBadge,
+  children,
   className = '',
 }: BankCardProps) {
   return (
@@ -69,6 +79,7 @@ export function BankCard({
             {footer && (
               <p className="text-[10px] uppercase tracking-wide text-white/50 mt-0.5">{footer}</p>
             )}
+            {children}
           </div>
           {demoBadge}
         </div>
