@@ -127,6 +127,19 @@ export function ForecastChart({
             />
           )}
 
+          {/* 빠듯 경계. 적자 판정이 이 시나리오에서 나오므로 선이 보여야
+              '위기' 표시가 허공에 뜬 것처럼 읽히지 않는다. */}
+          <Line
+            type="monotone"
+            dataKey="low"
+            stroke={main}
+            strokeOpacity={0.45}
+            strokeWidth={1.5}
+            dot={false}
+            isAnimationActive={false}
+            name="빠듯"
+          />
+
           <Line
             type="monotone"
             dataKey="mid"
@@ -147,15 +160,20 @@ export function ForecastChart({
               fill="#fff"
               stroke="#dc2626"
               strokeWidth={3}
-              label={{ value: '위기', position: 'bottom', fontSize: 11, fill: '#dc2626' }}
+              label={{
+                value: '빠듯 시나리오 적자',
+                position: 'bottom',
+                fontSize: 11,
+                fill: '#dc2626',
+              }}
             />
           )}
         </ComposedChart>
       </ResponsiveContainer>
 
       <p className="mt-2 text-center text-[11px] text-gray-400">
-        굵은 선은 보통 시나리오, 옅은 띠는 {SCENARIO_LABEL.COMFORTABLE}~
-        {SCENARIO_LABEL.TIGHT} 구간입니다
+        굵은 선은 {SCENARIO_LABEL.NORMAL}, 아래 얇은 선은 {SCENARIO_LABEL.TIGHT}{' '}
+        시나리오입니다
         {alternative && ` · 점선은 ${alternative.label}`}
       </p>
     </div>
@@ -166,7 +184,7 @@ export function ForecastChart({
 function relativeLabel(scenarios: Scenario[], month: string): string {
   const months = scenarios[0]?.points.map((p) => p.month) ?? [];
   const index = months.indexOf(month);
-  return index < 0 ? month : `+${index + 1}M`;
+  return index < 0 ? month : `${index + 1}개월`;
 }
 
 /**
@@ -188,7 +206,7 @@ function toRows(
 
   const rows: Row[] = mid.map((point, i) => ({
     // 절대 월(9월, 10월…)보다 상대 표기가 "지금부터 몇 달 뒤" 를 바로 읽힌다.
-    label: `+${i + 1}M`,
+    label: `${i + 1}개월`,
     mid: point.balance,
     low: low[i]?.balance,
     band:

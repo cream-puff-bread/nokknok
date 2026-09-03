@@ -26,13 +26,14 @@ interface Variant {
  * 버티는지" 가 무의미한 건 아니다. 엔진이 고르게 하는 대신 여기서 나란히
  * 놓고 사람이 고르게 한다.
  *
- * 둘로 좁힌 이유는 한 번에 견줄 수 있는 것이 둘까지이기 때문이다. 셋을
- * 늘어놓으면 무엇과 무엇을 비교하는지가 흐려지고, 차트에 겹쳐 그릴 대안도
- * 하나로 정해지지 않는다.
+ * 차트에 겹쳐 그릴 대안은 늘 하나다 — 여럿을 점선으로 깔면 무엇과 무엇을
+ * 견주는지 흐려진다. 기준은 일시불로 두고, 일시불을 고른 동안에는 가장 짧은
+ * 할부를 대안으로 보여준다.
  */
 const BASE_VARIANTS: Variant[] = [
   { key: 'LUMP', label: '일시불', paymentType: 'LUMP', installmentMonths: 0 },
   { key: 'FREE3', label: '무이자 3개월', paymentType: 'INTEREST_FREE', installmentMonths: 3 },
+  { key: 'FREE6', label: '무이자 6개월', paymentType: 'INTEREST_FREE', installmentMonths: 6 },
 ];
 
 interface ForecastToggleProps {
@@ -65,7 +66,7 @@ export function ForecastToggle({
           installmentMonths: purchase.installmentMonths,
         },
         ...BASE_VARIANTS.filter((v) => v.paymentType !== purchase.paymentType),
-      ].slice(0, 2);
+      ];
 
   const [activeKey, setActiveKey] = useState(askedKey);
   const [cache, setCache] = useState<Record<string, SimulationResponse>>({
@@ -99,7 +100,12 @@ export function ForecastToggle({
   }, []);
 
   const active = variants.find((v) => v.key === activeKey) ?? variants[0];
-  const other = variants.find((v) => v.key !== activeKey) ?? null;
+  // 비교 대상은 늘 일시불이다. 일시불을 보고 있을 때만 가장 짧은 할부를
+  // 대신 깐다 — "나눠 내면 어떻게 달라지나" 가 이 화면의 질문이라서다.
+  const other =
+    (active.key === 'LUMP'
+      ? variants.find((v) => v.key !== 'LUMP')
+      : variants.find((v) => v.key === 'LUMP')) ?? null;
   const shown = cache[active.key] ?? null;
   const otherForecast = other === null ? null : (cache[other.key] ?? null);
 
@@ -213,11 +219,15 @@ function FeedbackBanner({
   return (
     <div className="mt-3 rounded-2xl border border-red-100 bg-red-50 p-4">
       <p className="text-sm font-semibold text-red-900">
-        ⚠️ {active.label} 결제 시 {monthIndex === null ? '' : `+${monthIndex}개월 `}잔고 위기
+        ⚠️ {active.label} 결제 시 {monthIndex === null ? '' : `${monthIndex}개월 뒤 `}잔고 위기
       </p>
       <p className="mt-1 text-xs text-red-900/80">
-        빠듯 시나리오에서 잔고가 {formatWon(shown.deadPoint.shortage)} 부족해집니다.
+        가장 빠듯한 시나리오에서 잔고가 {formatWon(shown.deadPoint.shortage)} 부족해집니다.
+        보통 시나리오는 버티지만, 지출이 예상보다 많은 달이 겹치면 모자랍니다.
+        {/* 일시불은 나눠 내는 방법이 아니다. 할부를 보고 있는데 더 나은
+            쪽이 없으면 굳이 다른 방식을 권하지 않는다. */}
         {other !== null &&
+          other.installmentMonths > 0 &&
           (saferIsSafe
             ? ` ${other.label}로 나눠 내면 6개월 내내 0원 아래로 내려가지 않습니다.`
             : ` ${other.label}로 나눠 내면 그 시점을 뒤로 미룰 수 있습니다.`)}
@@ -228,7 +238,10 @@ function FeedbackBanner({
 
 function keyOf(paymentType: PaymentType, months: number): string {
   if (paymentType === 'LUMP') return 'LUMP';
-  return paymentType === 'INTEREST_FREE' && months === 3 ? 'FREE3' : `${paymentType}${months}`;
+  if (paymentType === 'INTEREST_FREE' && (months === 3 || months === 6)) {
+    return `FREE${months}`;
+  }
+  return `${paymentType}${months}`;
 }
 
 /** 적자 달이 지금부터 몇 번째인지. 못 찾으면 null. */
