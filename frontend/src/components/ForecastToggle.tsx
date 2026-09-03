@@ -217,11 +217,14 @@ function FeedbackBanner({
   const saferIsSafe = otherForecast !== null && otherForecast.deadPoint === null;
 
   return (
-    <div className="mt-3 rounded-2xl border border-red-100 bg-red-50 p-4">
-      <p className="text-sm font-semibold text-red-900">
-        ⚠️ {active.label} 결제 시 {monthIndex === null ? '' : `${monthIndex}개월 뒤 `}잔고 위기
+    // 빨강이 아니라 호박색이다. 적자는 가장 빠듯한 경우에만 나고 보통
+    // 시나리오는 버티므로, 단정적인 경고보다 주의가 사실에 맞는다
+    // (ui-system.md: 경고=빨강, 주의=호박).
+    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+      <p className="text-sm font-semibold text-amber-900">
+        ⚠️ {active.label} 결제 시 {monthIndex === null ? '' : `${monthIndex}개월 뒤 `}잔고 주의
       </p>
-      <p className="mt-1 text-xs text-red-900/80">
+      <p className="mt-1 text-xs text-amber-900/80">
         가장 빠듯한 시나리오에서 잔고가 {formatWon(shown.deadPoint.shortage)} 부족해집니다.
         보통 시나리오는 버티지만, 지출이 예상보다 많은 달이 겹치면 모자랍니다.
         {/* 일시불은 나눠 내는 방법이 아니다. 할부를 보고 있는데 더 나은

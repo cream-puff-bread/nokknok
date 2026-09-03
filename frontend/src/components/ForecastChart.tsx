@@ -2,7 +2,6 @@ import {
   Area,
   ComposedChart,
   Line,
-  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -59,13 +58,12 @@ export function ForecastChart({
   startBalance,
 }: ForecastChartProps) {
   const rows = toRows(scenarios, alternative?.scenarios, startBalance);
-  const danger = deadPoint !== null;
-  const main = danger ? '#dc2626' : '#2563eb';
 
-  const deadRow =
-    deadPoint === null
-      ? null
-      : rows.find((row) => row.label === relativeLabel(scenarios, deadPoint.month));
+  // 굵은 선(보통 시나리오)은 늘 파랑이다. 적자가 나는 것은 빠듯 시나리오뿐인데
+  // 굵은 선까지 빨갛게 칠하면 보통일 때도 위험한 것처럼 읽힌다. 경고는 빠듯
+  // 경계선과 아래 안내 상자에서만 한다(ui-system.md: 주의는 호박색).
+  const main = '#2563eb';
+  const edge = deadPoint === null ? '#2563eb' : '#f59e0b';
 
   return (
     <div className="rounded-2xl bg-gray-50 p-4">
@@ -99,9 +97,9 @@ export function ForecastChart({
           {/* 적자 기준선. 아래로 내려가면 통장이 비는 지점이다. */}
           <ReferenceLine
             y={0}
-            stroke="#f59e0b"
+            stroke="#d1d5db"
             strokeDasharray="4 4"
-            label={{ value: '잔고 0원', position: 'insideTopLeft', fontSize: 10, fill: '#b45309' }}
+            label={{ value: '잔고 0원', position: 'insideTopLeft', fontSize: 10, fill: '#9ca3af' }}
           />
 
           {/* 여유~빠듯 구간. 폭만 보여주고 선은 그리지 않는다. */}
@@ -132,8 +130,8 @@ export function ForecastChart({
           <Line
             type="monotone"
             dataKey="low"
-            stroke={main}
-            strokeOpacity={0.45}
+            stroke={edge}
+            strokeOpacity={deadPoint === null ? 0.4 : 0.9}
             strokeWidth={1.5}
             dot={false}
             isAnimationActive={false}
@@ -150,24 +148,6 @@ export function ForecastChart({
             name="보통"
           />
 
-          {/* 위기 지점은 빠듯 선 위에 찍는다. 적자 판정이 그 시나리오에서
-              나오므로 보통 선에 찍으면 아직 양수인 자리에 표시가 붙는다. */}
-          {deadRow?.low !== undefined && (
-            <ReferenceDot
-              x={deadRow.label}
-              y={deadRow.low}
-              r={6}
-              fill="#fff"
-              stroke="#dc2626"
-              strokeWidth={3}
-              label={{
-                value: '빠듯 시나리오 적자',
-                position: 'bottom',
-                fontSize: 11,
-                fill: '#dc2626',
-              }}
-            />
-          )}
         </ComposedChart>
       </ResponsiveContainer>
 
@@ -178,13 +158,6 @@ export function ForecastChart({
       </p>
     </div>
   );
-}
-
-/** 'YYYY-MM' 이 몇 번째 달인지 찾아 상대 표기로 바꾼다. */
-function relativeLabel(scenarios: Scenario[], month: string): string {
-  const months = scenarios[0]?.points.map((p) => p.month) ?? [];
-  const index = months.indexOf(month);
-  return index < 0 ? month : `${index + 1}개월`;
 }
 
 /**
