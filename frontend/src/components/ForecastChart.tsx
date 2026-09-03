@@ -59,10 +59,13 @@ export function ForecastChart({
 }: ForecastChartProps) {
   const rows = toRows(scenarios, alternative?.scenarios, startBalance);
 
-  // 굵은 선(보통 시나리오)은 늘 파랑이다. 적자가 나는 것은 빠듯 시나리오뿐인데
-  // 굵은 선까지 빨갛게 칠하면 보통일 때도 위험한 것처럼 읽힌다. 경고는 빠듯
-  // 경계선과 아래 안내 상자에서만 한다(ui-system.md: 주의는 호박색).
-  const main = '#2563eb';
+  // 굵은 선은 보통 시나리오가 0원 아래로 갈 때만 경고색이 된다.
+  //
+  // 빠듯 시나리오만 적자인데 굵은 선까지 빨갛게 칠하면 보통일 때도 위험한
+  // 것처럼 읽힌다. 반대로 보통 시나리오가 실제로 마이너스인데 파랑으로 두면
+  // 그림이 "중앙값은 안전하다" 고 말해 아래 안내 문구와 어긋난다.
+  // 기준은 그 선 자신이 0원을 넘느냐 하나뿐이다(ui-system.md: 경고=빨강).
+  const main = dipsBelowZero(scenarios, 'NORMAL') ? '#dc2626' : '#2563eb';
   const edge = deadPoint === null ? '#2563eb' : '#f59e0b';
 
   return (
@@ -158,6 +161,12 @@ export function ForecastChart({
       </p>
     </div>
   );
+}
+
+/** 그 시나리오가 6개월 안에 한 번이라도 0원 아래로 내려가는지. */
+function dipsBelowZero(scenarios: Scenario[], level: string): boolean {
+  const points = scenarios.find((s) => s.level === level)?.points ?? [];
+  return points.some((p) => p.balance < 0);
 }
 
 /**

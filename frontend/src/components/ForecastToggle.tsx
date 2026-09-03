@@ -215,18 +215,38 @@ function FeedbackBanner({
 
   const monthIndex = indexOf(shown, shown.deadPoint.month);
   const saferIsSafe = otherForecast !== null && otherForecast.deadPoint === null;
+  // 보통 시나리오가 어디까지 내려가는지 함께 말한다.
+  //
+  // "가장 빠듯한 경우에만 부족하다" 로만 적었더니, 보통 선이 2만원까지
+  // 떨어져 눈으로는 0원에 붙어 있는데 글은 버틴다고 말해 서로 어긋났다.
+  // 30만원이 2만원이 되는 것은 버티는 게 아니다.
+  const trough = lowestPoint(shown, 'NORMAL');
+
+  // 보통 시나리오까지 마이너스면 경고(빨강), 빠듯한 경우에만 마이너스면
+  // 주의(호박)다 — ui-system.md 의 색 배정 그대로다. 늘 호박으로 두면 보통
+  // 시나리오가 적자인 날에도 "조심하세요" 수준으로 읽힌다.
+  const severe = trough !== null && trough.balance < 0;
+  const tone = severe
+    ? { box: 'border-red-200 bg-red-50', head: 'text-red-700', body: 'text-red-700/80' }
+    : { box: 'border-amber-200 bg-amber-50', head: 'text-amber-900', body: 'text-amber-900/80' };
 
   return (
-    // 빨강이 아니라 호박색이다. 적자는 가장 빠듯한 경우에만 나고 보통
-    // 시나리오는 버티므로, 단정적인 경고보다 주의가 사실에 맞는다
-    // (ui-system.md: 경고=빨강, 주의=호박).
-    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-      <p className="text-sm font-semibold text-amber-900">
-        ⚠️ {active.label} 결제 시 {monthIndex === null ? '' : `${monthIndex}개월 뒤 `}잔고 주의
+    <div className={`mt-3 rounded-2xl border p-4 ${tone.box}`}>
+      <p className={`text-sm font-semibold ${tone.head}`}>
+        {severe ? '🚨' : '⚠️'} {active.label} 결제 시{' '}
+        {monthIndex === null ? '' : `${monthIndex}개월 뒤 `}
+        잔고 {severe ? '부족' : '주의'}
       </p>
-      <p className="mt-1 text-xs text-amber-900/80">
-        가장 빠듯한 시나리오에서 잔고가 {formatWon(shown.deadPoint.shortage)} 부족해집니다.
-        보통 시나리오는 버티지만, 지출이 예상보다 많은 달이 겹치면 모자랍니다.
+      <p className={`mt-1 text-xs ${tone.body}`}>
+        {/* 남는 쪽은 "줄어든다" 고 쓰지 않는다. 6개월 할부처럼 가장 낮은
+            달의 잔고가 오늘보다 오히려 많은 경우가 있어서, 방향을 단정하면
+            그 화면에서 거짓말이 된다. 가장 낮은 지점만 사실대로 짚는다. */}
+        {trough !== null && trough.balance < 0
+          ? `보통 시나리오에서도 ${trough.index}개월 뒤 ${formatWon(-trough.balance)} 모자랍니다. `
+          : trough !== null
+            ? `보통 시나리오는 ${trough.index}개월 뒤 ${formatWon(trough.balance)}이 가장 낮습니다. `
+            : ''}
+        가장 빠듯한 경우에는 {formatWon(shown.deadPoint.shortage)} 부족해집니다.
         {/* 일시불은 나눠 내는 방법이 아니다. 할부를 보고 있는데 더 나은
             쪽이 없으면 굳이 다른 방식을 권하지 않는다. */}
         {other !== null &&
@@ -252,4 +272,18 @@ function indexOf(simulation: SimulationResponse, month: string): number | null {
   const months = simulation.scenarios[0]?.points.map((p) => p.month) ?? [];
   const index = months.indexOf(month);
   return index < 0 ? null : index + 1;
+}
+
+/** 그 시나리오에서 잔고가 가장 낮아지는 지점. 없으면 null. */
+function lowestPoint(
+  simulation: SimulationResponse,
+  level: string,
+): { index: number; balance: number } | null {
+  const points = simulation.scenarios.find((s) => s.level === level)?.points ?? [];
+  if (points.length === 0) return null;
+  let best = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    if (points[i].balance < points[best].balance) best = i;
+  }
+  return { index: best + 1, balance: points[best].balance };
 }
