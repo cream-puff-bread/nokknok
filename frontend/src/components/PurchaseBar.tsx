@@ -13,11 +13,17 @@ import { MAX_QUERY_LENGTH } from '../api/simulate';
  * 해석되고 카드 추천과 근거 조항까지 나온다. 문장을 바꿀 때는 다시 확인해야
  * 한다. 파싱이 어긋나는 예시를 눌러 보게 하는 건 없느니만 못하다.
  *
- * 첫 번째는 일부러 큰 금액이다. 잔고가 적자로 도는 경우라야 결제 방식을 바꿔
- * 보는 토글이 의미를 갖는다.
+ * 첫 번째 금액은 200만원으로 맞춰 뒀다. 180만원이면 적자가 가장 빠듯한
+ * 시나리오에서만 나서 보통 시나리오는 20,030원으로 아슬하게 버티는데, 그
+ * 값은 세로축에서 0원과 구별이 안 돼 굵은 선이 0원에 붙은 것처럼 보인다.
+ *
+ * 200만원이면 결제 방식 셋이 뚜렷하게 갈린다 — 일시불은 세 시나리오가 모두
+ * 1개월에 적자, 무이자 3개월은 보통 시나리오가 3개월에 적자, 무이자 6개월은
+ * 보통이 32만원을 유지하고 빠듯만 적자다. 경고(빨강)와 주의(호박)가 한
+ * 화면에서 다 나오므로 혼자 둘러보는 사람도 토글이 무엇을 바꾸는지 본다.
  */
 const SUGGESTIONS = [
-  '아이폰 180만원 일시불로 사도 될까?',
+  '아이폰 200만원 일시불로 사도 될까?',
   '외식 8만원 어느 카드가 유리해?',
   '이마트 장보기 25만원',
   '주유 12만원 어떤 카드가 좋아?',
@@ -81,7 +87,7 @@ export function PurchaseBar({ running, slowMessage, onSubmit }: PurchaseBarProps
             onChange={(e) => setQuery(e.target.value)}
             disabled={running}
             maxLength={MAX_QUERY_LENGTH}
-            placeholder="예: 아이폰 180만원 할부로 사도 될까?"
+            placeholder="예: 아이폰 200만원 할부로 사도 될까?"
             aria-label="사려는 것을 그대로 입력"
             className="w-full rounded-xl bg-gray-100 py-3 pl-4 pr-14 text-sm text-gray-900 outline-none transition-all focus:ring-2 focus:ring-blue-600 disabled:text-gray-400"
           />

@@ -74,16 +74,18 @@ export function ForecastChart({
   // 것처럼 읽힌다. 반대로 보통 시나리오가 실제로 마이너스인데 파랑으로 두면
   // 그림이 "중앙값은 안전하다" 고 말해 아래 안내 문구와 어긋난다.
   // 기준은 그 선 자신이 0원을 넘느냐 하나뿐이다(ui-system.md: 경고=빨강).
-  const main = dipsBelowZero(scenarios, 'NORMAL') ? '#dc2626' : '#2563eb';
+  const midDips = dipsBelowZero(scenarios, 'NORMAL');
+  const main = midDips ? '#dc2626' : '#2563eb';
   const edge = deadPoint === null ? '#2563eb' : '#f59e0b';
 
-  // 위기 표시는 그 점이 놓인 선의 색을 그대로 쓴다.
+  // 위기 표시 색은 아래 안내 상자와 같은 기준(보통 시나리오가 적자인가)을
+  // 쓴다.
   //
-  // 빠듯 시나리오에만 적자가 나는데 점만 빨갛게 찍으면, 아래 안내 상자는
-  // 호박색으로 "주의" 라고 말하는데 그래프는 "위기" 라고 말해 또 어긋난다.
-  // 점이 어느 선의 사건인지도 색으로 드러난다.
+  // 점이 놓인 선의 색을 따르게 했더니, 보통 시나리오까지 적자인 날에 굵은
+  // 선과 상자는 빨간데 정작 적자 시점을 짚는 점만 호박색으로 남았다.
+  // deadPoint 의 시나리오(가장 먼저 무너지는 쪽)와 심각도는 별개다.
   const dead = deadMarker(scenarios, deadPoint);
-  const deadColor = deadPoint?.level === 'TIGHT' ? edge : main;
+  const deadColor = midDips ? main : edge;
 
   return (
     <div className="rounded-2xl bg-gray-50 p-4">
