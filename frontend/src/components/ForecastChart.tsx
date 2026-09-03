@@ -2,6 +2,7 @@ import {
   Area,
   ComposedChart,
   Line,
+  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -16,6 +17,14 @@ import {
   type DeadPoint,
   type Scenario,
 } from '../types/contract';
+
+const CHART_HEIGHT = 240;
+/** recharts XAxis 기본 높이. 이 아래는 눈금 글자 자리다. */
+const X_AXIS_HEIGHT = 30;
+const PLOT_BOTTOM = CHART_HEIGHT - X_AXIS_HEIGHT;
+/** 위기 말풍선을 점에서 얼마나 띄울지, 그리고 그 절반 높이. */
+const PILL_OFFSET = 20;
+const PILL_HALF = 9;
 
 interface ForecastChartProps {
   /** 지금 고른 결제 방식의 시나리오. */
@@ -68,10 +77,18 @@ export function ForecastChart({
   const main = dipsBelowZero(scenarios, 'NORMAL') ? '#dc2626' : '#2563eb';
   const edge = deadPoint === null ? '#2563eb' : '#f59e0b';
 
+  // 위기 표시는 그 점이 놓인 선의 색을 그대로 쓴다.
+  //
+  // 빠듯 시나리오에만 적자가 나는데 점만 빨갛게 찍으면, 아래 안내 상자는
+  // 호박색으로 "주의" 라고 말하는데 그래프는 "위기" 라고 말해 또 어긋난다.
+  // 점이 어느 선의 사건인지도 색으로 드러난다.
+  const dead = deadMarker(scenarios, deadPoint);
+  const deadColor = deadPoint?.level === 'TIGHT' ? edge : main;
+
   return (
     <div className="rounded-2xl bg-gray-50 p-4">
-      <ResponsiveContainer width="100%" height={240}>
-        <ComposedChart data={rows} margin={{ top: 16, right: 8, bottom: 0, left: 0 }}>
+      <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+        <ComposedChart data={rows} margin={{ top: 16, right: 20, bottom: 0, left: 0 }}>
           <defs>
             <linearGradient id="forecast-fill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={main} stopOpacity={0.22} />
@@ -151,6 +168,29 @@ export function ForecastChart({
             name="보통"
           />
 
+          {/* 잔고가 처음 0원 아래로 내려가는 달. 옅은 원을 뒤에 깔아 선 위의
+              평범한 점과 구별되게 한다. */}
+          {dead !== null && (
+            <ReferenceDot
+              x={dead.label}
+              y={dead.balance}
+              r={9}
+              fill={deadColor}
+              fillOpacity={0.18}
+              stroke="none"
+            />
+          )}
+          {dead !== null && (
+            <ReferenceDot
+              x={dead.label}
+              y={dead.balance}
+              r={4}
+              fill={deadColor}
+              stroke="#ffffff"
+              strokeWidth={2}
+              label={<CrisisLabel color={deadColor} />}
+            />
+          )}
         </ComposedChart>
       </ResponsiveContainer>
 
@@ -158,9 +198,70 @@ export function ForecastChart({
         굵은 선은 {SCENARIO_LABEL.NORMAL}, 아래 얇은 선은 {SCENARIO_LABEL.TIGHT}{' '}
         시나리오입니다
         {alternative && ` · 점선은 ${alternative.label}`}
+        {deadPoint !== null &&
+          ` · 위기는 ${SCENARIO_LABEL[deadPoint.level]} 기준 첫 적자 달`}
       </p>
     </div>
   );
+}
+
+/**
+ * 위기 표시 말풍선.
+ *
+ * recharts 가 viewBox 로 점의 화면 좌표를 넣어 준다. 점 바로 옆에 붙여야
+ * 어느 달의 일인지 눈으로 이어진다.
+ *
+ * 기본은 아래다. 적자 지점 바로 위에는 늘 보통 시나리오 선이 지나가서
+ * (적자는 가장 아래 선에서 먼저 난다) 위에 달면 굵은 선의 데이터 점을 가린다.
+ *
+ * 다만 적자가 깊으면 점이 눈금 글자 근처까지 내려와 아래에 달 자리가 없다.
+ * 그때만 위로 올린다 — 그 정도로 내려온 점이면 굵은 선은 이미 한참 위에 있다.
+ */
+function CrisisLabel({
+  color,
+  viewBox,
+}: {
+  color: string;
+  viewBox?: { x?: number; y?: number };
+}) {
+  const x = viewBox?.x ?? 0;
+  const y = viewBox?.y ?? 0;
+  const fitsBelow = y + PILL_OFFSET + PILL_HALF <= PLOT_BOTTOM;
+  const dy = fitsBelow ? PILL_OFFSET : -PILL_OFFSET;
+  return (
+    <g transform={`translate(${x}, ${y + dy})`} style={{ pointerEvents: 'none' }}>
+      <rect x={-17} y={-9} width={34} height={18} rx={9} fill={color} />
+      <text
+        x={0}
+        y={0}
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize={10}
+        fontWeight={700}
+        fill="#ffffff"
+      >
+        위기
+      </text>
+    </g>
+  );
+}
+
+/**
+ * 잔고가 처음 0원 아래로 내려가는 지점.
+ *
+ * 백엔드가 준 deadPoint 의 시나리오와 달을 그대로 쓴다. 프론트에서 다시
+ * 찾으면 적자 판정이 두 곳에 생겨 서로 어긋날 수 있다
+ * (forecast/projection.py 의 _find_dead_point 가 유일한 기준이다).
+ */
+function deadMarker(
+  scenarios: Scenario[],
+  deadPoint: DeadPoint | null,
+): { label: string; balance: number } | null {
+  if (deadPoint === null) return null;
+  const points = scenarios.find((s) => s.level === deadPoint.level)?.points ?? [];
+  const index = points.findIndex((p) => p.month === deadPoint.month);
+  if (index < 0) return null;
+  return { label: `${index + 1}개월`, balance: points[index].balance };
 }
 
 /** 그 시나리오가 6개월 안에 한 번이라도 0원 아래로 내려가는지. */
