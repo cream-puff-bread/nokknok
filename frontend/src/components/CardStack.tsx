@@ -29,7 +29,14 @@ const CARD_SURFACES = ['bg-slate-800', 'bg-slate-700', 'bg-slate-600', 'bg-slate
  */
 const STACK_GAP = 72;
 /** 마우스를 올린 카드 아래를 벌려 그 카드 전체가 보이게 한다. */
-const HOVER_GAP = 190;
+const HOVER_GAP = 220;
+/**
+ * 카드 높이.
+ *
+ * 칸 너비가 320px 이므로 208px 이면 1.54:1 이 되어 실물 신용카드
+ * (85.6 x 53.98mm, 약 1.586:1)에 가깝다. 납작하면 카드로 안 읽힌다.
+ */
+const CARD_HEIGHT = 208;
 
 interface CardStackProps {
   cards: OwnedCard[];
@@ -61,7 +68,7 @@ export function CardStack({ cards, onSelect }: CardStackProps) {
     // 그대로 둬야 방금 올린 카드가 제자리에 머문다.
     index * STACK_GAP + (hovered !== null && index > hovered ? HOVER_GAP - STACK_GAP : 0);
 
-  const height = offsetOf(cards.length - 1) + 176;
+  const height = offsetOf(cards.length - 1) + CARD_HEIGHT;
 
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const delta = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
@@ -97,8 +104,8 @@ export function CardStack({ cards, onSelect }: CardStackProps) {
             onKeyDown={(event) => onKeyDown(event, i)}
             onClick={() => onSelect(card)}
             aria-label={`${card.cardName} 자세히 보기`}
-            style={{ top: offsetOf(i), zIndex: i }}
-            className={`absolute inset-x-0 h-44 text-left
+            style={{ top: offsetOf(i), zIndex: i, height: CARD_HEIGHT }}
+            className={`absolute inset-x-0 text-left
               transition-[top,box-shadow] duration-300 ease-out motion-reduce:transition-none
               rounded-3xl focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2
               ${open ? 'drop-shadow-2xl' : 'drop-shadow-lg'}`}

@@ -169,7 +169,7 @@ export function HomePage({
       {/* 잔고와 질문을 왼쪽에, 카드를 오른쪽에 둔다. 세로 한 줄로 쌓으면
           노트북 가로를 절반 넘게 비우게 되고, 심사위원은 노트북으로 본다
           (contracts/ui-system.md). 좁은 화면에서는 한 줄로 돌아간다. */}
-      <div className="grid gap-8 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] md:items-start">
+      <div className="grid gap-8 md:grid-cols-[minmax(0,1fr)_320px] md:items-start">
         <div className="space-y-6">
         <div className="bg-blue-50 rounded-xl border border-blue-200 p-6">
           <p className="text-sm text-gray-500 mb-1">가용잔고</p>
