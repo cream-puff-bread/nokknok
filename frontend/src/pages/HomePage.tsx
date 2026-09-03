@@ -173,7 +173,9 @@ export function HomePage({
           위아래로 벌려 아래 끝을 카드 덱 바닥과 맞춘다. 잔고는 위에,
           질문은 아래에 붙는다. */}
       <div className="grid gap-8 md:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="flex flex-col justify-between gap-6">
+        {/* 잔고와 질문을 붙여 가운데로 모은다. 위아래로 벌려 두면 둘이
+            멀어져 "잔고를 보고 그 자리에서 묻는다" 는 흐름이 끊긴다. */}
+        <div className="flex flex-col justify-center gap-4">
         <div className="bg-blue-50 rounded-xl border border-blue-200 p-6">
           <p className="text-sm text-gray-500 mb-1">가용잔고</p>
           <p

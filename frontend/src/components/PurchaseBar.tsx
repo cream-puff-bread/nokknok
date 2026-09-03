@@ -55,25 +55,45 @@ export function PurchaseBar({ running, slowMessage, onSubmit }: PurchaseBarProps
   };
 
   return (
-    <form onSubmit={submit}>
+    // 질문을 카드 안에 담는다. 잔고 카드와 나란히 놓이면 "여기에 물어보는
+    // 자리" 라는 게 배치만으로 드러난다.
+    <form onSubmit={submit} className="rounded-2xl border border-gray-200 bg-white p-6">
       <div>
-        <div className="flex gap-2">
+        <div className="mb-4 flex items-center gap-2">
+          <span
+            aria-hidden
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+              <path d="M12 2l1.9 5.7L19.6 9l-5.7 1.9L12 16.6l-1.9-5.7L4.4 9l5.7-1.3L12 2z" />
+              <path d="M18.5 14l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z" />
+            </svg>
+          </span>
+          <h3 className="text-base font-semibold text-gray-900">이 결제, 해도 될까요?</h3>
+        </div>
+
+        {/* 보내기 버튼을 입력란 안에 넣는다. 입력과 실행이 한 덩어리로 읽히고,
+            좁은 화면에서 버튼이 아래로 떨어지지 않는다. */}
+        <div className="relative">
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             disabled={running}
             maxLength={MAX_QUERY_LENGTH}
-            placeholder="아이폰 180만원 6개월 할부로 사도 될까?"
+            placeholder="예: 아이폰 180만원 할부로 사도 될까?"
             aria-label="사려는 것을 그대로 입력"
-            className="flex-1 rounded-xl bg-gray-100 px-4 py-3 text-sm text-gray-900 outline-none transition-all focus:ring-2 focus:ring-blue-600 disabled:text-gray-400"
+            className="w-full rounded-xl bg-gray-100 py-3 pl-4 pr-14 text-sm text-gray-900 outline-none transition-all focus:ring-2 focus:ring-blue-600 disabled:text-gray-400"
           />
           <button
             type="submit"
             disabled={running || query.trim().length === 0}
-            className="shrink-0 rounded-xl bg-blue-600 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 active:bg-blue-800 disabled:bg-gray-300"
+            aria-label={running ? '계산 중' : '계산하기'}
+            className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-blue-600 text-white transition-colors hover:bg-blue-700 active:bg-blue-800 disabled:bg-gray-300"
           >
-            {running ? '계산 중…' : '계산하기'}
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 19V5M5 12l7-7 7 7" />
+            </svg>
           </button>
         </div>
         {running ? (
