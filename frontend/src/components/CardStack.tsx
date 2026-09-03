@@ -28,8 +28,13 @@ const CARD_SURFACES = ['bg-slate-800', 'bg-slate-700', 'bg-slate-600', 'bg-slate
  * 카드 이름을 위쪽 슬롯에 두므로 아래 블록이 아니라 위 띠만 보이면 된다.
  */
 const STACK_GAP = 72;
-/** 마우스를 올린 카드 아래를 벌려 그 카드 전체가 보이게 한다. */
-const HOVER_GAP = 220;
+/**
+ * 마우스를 올린 카드 아래를 벌리는 간격.
+ *
+ * 카드 높이(208px)보다 넉넉히 작게 둬서 아래 카드가 절반 가까이 걸치게 한다.
+ * 완전히 떼어 놓으면 덱에서 한 장이 빠져나온 것처럼 보여 쌓인 느낌이 끊긴다.
+ */
+const HOVER_GAP = 152;
 /**
  * 카드 높이.
  *
@@ -68,7 +73,10 @@ export function CardStack({ cards, onSelect }: CardStackProps) {
     // 그대로 둬야 방금 올린 카드가 제자리에 머문다.
     index * STACK_GAP + (hovered !== null && index > hovered ? HOVER_GAP - STACK_GAP : 0);
 
-  const height = offsetOf(cards.length - 1) + CARD_HEIGHT;
+  // 쉴 때 높이로 고정한다. 호버로 벌어진 만큼 아래로 넘치게 두는 것이지
+  // 칸을 늘리지 않는다 — 늘리면 아래에 있는 확정 지출이 그때마다 밀려
+  // 내려가고, 왼쪽 열과 맞춰 둔 아래 선도 흔들린다.
+  const height = (cards.length - 1) * STACK_GAP + CARD_HEIGHT;
 
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const delta = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
@@ -80,11 +88,7 @@ export function CardStack({ cards, onSelect }: CardStackProps) {
   };
 
   return (
-    <div
-      className="relative transition-[height] duration-300 motion-reduce:transition-none"
-      style={{ height }}
-      onMouseLeave={() => setHovered(null)}
-    >
+    <div className="relative" style={{ height }} onMouseLeave={() => setHovered(null)}>
       {/* 첫 카드를 맨 아래에 두려면 그리는 순서를 뒤집는다. i 가 클수록
           아래이자 앞이므로, 뒤집은 배열의 마지막(원래 첫 카드)이 앞에 온다. */}
       {[...cards].reverse().map((card, i) => {

@@ -169,8 +169,11 @@ export function HomePage({
       {/* 잔고와 질문을 왼쪽에, 카드를 오른쪽에 둔다. 세로 한 줄로 쌓으면
           노트북 가로를 절반 넘게 비우게 되고, 심사위원은 노트북으로 본다
           (contracts/ui-system.md). 좁은 화면에서는 한 줄로 돌아간다. */}
-      <div className="grid gap-8 md:grid-cols-[minmax(0,1fr)_320px] md:items-start">
-        <div className="space-y-6">
+      {/* items-start 를 빼서 두 칸이 같은 높이로 늘어나게 하고, 왼쪽은
+          위아래로 벌려 아래 끝을 카드 덱 바닥과 맞춘다. 잔고는 위에,
+          질문은 아래에 붙는다. */}
+      <div className="grid gap-8 md:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="flex flex-col justify-between gap-6">
         <div className="bg-blue-50 rounded-xl border border-blue-200 p-6">
           <p className="text-sm text-gray-500 mb-1">가용잔고</p>
           <p
@@ -251,7 +254,9 @@ export function HomePage({
         {fixedExpenses.length === 0 ? (
           <EmptyState message="등록된 확정 지출이 없습니다. 통장 잔액 전부를 쓸 수 있습니다." />
         ) : (
-          <ul className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-200">
+          // 항목이 여덟이라 그대로 두면 페이지가 계속 길어진다. 높이를
+          // 고정하고 안에서 굴린다 — 화면 한 장에 담기는 게 이 배치의 목적이다.
+          <ul className="max-h-96 overflow-y-auto bg-white rounded-xl border border-gray-200 divide-y divide-gray-200">
             {fixedExpenses.map((expense, i) => (
               <FixedExpenseRow key={`${expense.label}-${i}`} expense={expense} />
             ))}
