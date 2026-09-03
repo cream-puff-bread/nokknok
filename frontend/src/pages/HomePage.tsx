@@ -68,8 +68,9 @@ export function HomePage({
 }: HomePageProps) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [slowPhase, setSlowPhase] = useState<SlowRequestPhase | null>(null);
-  // 물어본 것들. 최근 것이 위로 온다. 답은 모달에만 띄우고 여기에는 질문만
-  // 남긴다 — 결과를 페이지에도 펼치면 같은 내용이 두 번 있는 것처럼 읽힌다.
+  // 물어본 것들. 최근 것이 위로 온다. 답은 모달에만 띄우고, 목록은 입력창을
+  // 눌렀을 때만 펴진다(PurchaseBar) — 늘 깔아 두면 물어볼수록 길어져 그 아래
+  // 있는 것들을 밀어 내린다.
   const [history, setHistory] = useState<AskEntry[]>([]);
   const [openId, setOpenId] = useState<number | null>(null);
   const [asking, setAsking] = useState(false);
@@ -207,32 +208,18 @@ export function HomePage({
         </div>
 
         <div className="space-y-3">
+          {/* 답이 아니라 물어본 것만 넘긴다. 결과를 페이지에도 펼치면 모달과
+              같은 내용이 두 번 있는 것처럼 읽힌다. 기록을 누르면 그때 계산한
+              답이 그대로 다시 열린다 — 다시 계산하지 않는다. */}
           <PurchaseBar
             running={asking}
             slowMessage={purchaseSlow ? SLOW_REQUEST_MESSAGE[purchaseSlow] : null}
             onSubmit={askPurchase}
+            history={history}
+            onPickHistory={setOpenId}
           />
 
           {askError !== null && <ErrorState message={askError} />}
-
-          {/* 답이 아니라 물어본 것만 남긴다. 결과를 여기에도 펼치면 모달과
-              같은 내용이 두 번 있는 것처럼 읽힌다. 누르면 그 때 계산한 답이
-              그대로 다시 열린다 — 다시 계산하지 않는다. */}
-          {history.length > 0 && (
-            <ul className="space-y-1">
-              {history.map((entry) => (
-                <li key={entry.id}>
-                  <button
-                    type="button"
-                    onClick={() => setOpenId(entry.id)}
-                    className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-500 transition-colors hover:bg-white hover:text-gray-900"
-                  >
-                    <span className="text-gray-400">↳</span> {entry.query}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
 
         <Modal

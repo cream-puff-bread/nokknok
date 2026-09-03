@@ -29,12 +29,24 @@ const SUGGESTIONS = [
   '주유 12만원 어떤 카드가 좋아?',
 ];
 
+/** 기록 한 줄. 답은 페이지가 들고 있고 여기서는 눌린 것만 알린다. */
+export interface AskHistoryItem {
+  id: number;
+  query: string;
+}
+
 interface PurchaseBarProps {
   running: boolean;
   /** 5초·15초를 넘겼을 때 보여줄 안내. 없으면 그리지 않는다. */
   slowMessage?: string | null;
   onSubmit: (query: string) => void;
+  /** 지금까지 물어본 것들. 최근 순. */
+  history?: AskHistoryItem[];
+  onPickHistory?: (id: number) => void;
 }
+
+/** 한 번에 펴 놓을 기록 수. 넘치면 입력창이 화면을 다 덮는다. */
+const MAX_HISTORY_SHOWN = 6;
 
 /**
  * 구매 질문 입력창.
@@ -46,9 +58,27 @@ interface PurchaseBarProps {
  * 2초 남짓 걸리고, 서버가 잠들어 있으면 40초까지 간다. 그래서 진행 상태를
  * 바 안에서 그린다 — 입력란 자리에 안내 문구가 뜨고 버튼이 잠긴다. 바깥
  * 어딘가에 스피너를 두면 방금 누른 곳과 반응하는 곳이 달라 멈춘 것처럼 보인다.
+ *
+ * 물어본 기록은 입력창을 눌렀을 때만 아래로 펼친다. 늘 깔아 두면 물어볼수록
+ * 목록이 길어져 그 아래 있는 것들을 밀어 내리는데, 정작 기록은 다시 볼 일이
+ * 잦지 않다. 검색창이 원래 그렇게 동작하기도 한다.
  */
-export function PurchaseBar({ running, slowMessage, onSubmit }: PurchaseBarProps) {
+export function PurchaseBar({
+  running,
+  slowMessage,
+  onSubmit,
+  history = [],
+  onPickHistory,
+}: PurchaseBarProps) {
   const [query, setQuery] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  // 입력 중에는 걸러 보여준다. 기록이 쌓인 뒤 같은 것을 다시 물으려 할 때
+  // 몇 글자만 쳐도 찾아진다.
+  const shown = history
+    .filter((entry) => entry.query.includes(query.trim()))
+    .slice(0, MAX_HISTORY_SHOWN);
+  const showHistory = historyOpen && !running && shown.length > 0;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -58,6 +88,7 @@ export function PurchaseBar({ running, slowMessage, onSubmit }: PurchaseBarProps
     // 보낸 뒤에는 비운다. 채팅처럼 이어 물을 수 있어야 하고, 남아 있으면
     // 같은 질문을 실수로 두 번 보내기 쉽다.
     setQuery('');
+    setHistoryOpen(false);
   };
 
   return (
@@ -80,11 +111,24 @@ export function PurchaseBar({ running, slowMessage, onSubmit }: PurchaseBarProps
 
         {/* 보내기 버튼을 입력란 안에 넣는다. 입력과 실행이 한 덩어리로 읽히고,
             좁은 화면에서 버튼이 아래로 떨어지지 않는다. */}
-        <div className="relative">
+        <div
+          className="relative"
+          // focus/blur 는 안쪽 요소에서도 올라온다. 기록 항목으로 초점이
+          // 옮겨간 것뿐이면 닫지 않아야 키보드로도 고를 수 있다.
+          onFocus={() => setHistoryOpen(true)}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              setHistoryOpen(false);
+            }
+          }}
+        >
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setHistoryOpen(false);
+            }}
             disabled={running}
             maxLength={MAX_QUERY_LENGTH}
             placeholder="예: 아이폰 200만원 할부로 사도 될까?"
@@ -101,6 +145,42 @@ export function PurchaseBar({ running, slowMessage, onSubmit }: PurchaseBarProps
               <path d="M12 19V5M5 12l7-7 7 7" />
             </svg>
           </button>
+
+          {showHistory && (
+            <div className="absolute inset-x-0 top-full z-10 mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+              <p className="px-4 pb-1 pt-3 text-[11px] font-medium text-gray-400">
+                최근 검색
+              </p>
+              <ul className="pb-2">
+                {shown.map((entry) => (
+                  <li key={entry.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onPickHistory?.(entry.id);
+                        setHistoryOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                    >
+                      <svg
+                        aria-hidden
+                        viewBox="0 0 24 24"
+                        className="h-3.5 w-3.5 shrink-0 text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      >
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M12 7v5l3 2" />
+                      </svg>
+                      <span className="truncate">{entry.query}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
         {running ? (
           <p className="mt-2 text-xs text-gray-500">
