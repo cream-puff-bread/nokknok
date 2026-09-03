@@ -235,12 +235,18 @@ export function HomePage({
           )}
         </div>
 
-        <Modal open={open !== null} title="이 결제, 해도 될까요" onClose={() => setOpenId(null)}>
+        <Modal
+          open={open !== null}
+          caption="AI 결제 라우팅 완료"
+          title="추천 결제 영수증"
+          onClose={() => setOpenId(null)}
+        >
           {open !== null && (
             <ReceiptWithChart
               personaId={personaId}
               purchase={open}
               categoryLabel={categoryLabel}
+              availableBalance={availableBalance}
             />
           )}
         </Modal>
@@ -299,10 +305,12 @@ function ReceiptWithChart({
   personaId,
   purchase,
   categoryLabel,
+  availableBalance,
 }: {
   personaId: number;
   purchase: AskEntry;
   categoryLabel: (code: string) => string;
+  availableBalance?: number;
 }) {
   return (
     <Receipt
@@ -315,6 +323,7 @@ function ReceiptWithChart({
           personaId={personaId}
           purchase={purchase.purchase}
           asked={purchase.simulation}
+          availableBalance={availableBalance}
         />
       }
     />
