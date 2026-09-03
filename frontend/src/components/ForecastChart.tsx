@@ -19,11 +19,9 @@ import {
 } from '../types/contract';
 
 const CHART_HEIGHT = 240;
-/** recharts XAxis 기본 높이. 이 아래는 눈금 글자 자리다. */
-const X_AXIS_HEIGHT = 30;
-const PLOT_BOTTOM = CHART_HEIGHT - X_AXIS_HEIGHT;
+const PLOT_TOP = 16;
 /** 위기 말풍선을 점에서 얼마나 띄울지, 그리고 그 절반 높이. */
-const PILL_OFFSET = 20;
+const PILL_OFFSET = 24;
 const PILL_HALF = 9;
 
 interface ForecastChartProps {
@@ -78,14 +76,16 @@ export function ForecastChart({
   const main = midDips ? '#dc2626' : '#2563eb';
   const edge = deadPoint === null ? '#2563eb' : '#f59e0b';
 
-  // 위기 표시 색은 아래 안내 상자와 같은 기준(보통 시나리오가 적자인가)을
-  // 쓴다.
+  // 위기 표시는 굵은 선(보통 시나리오) 위에만 찍는다.
   //
-  // 점이 놓인 선의 색을 따르게 했더니, 보통 시나리오까지 적자인 날에 굵은
-  // 선과 상자는 빨간데 정작 적자 시점을 짚는 점만 호박색으로 남았다.
-  // deadPoint 의 시나리오(가장 먼저 무너지는 쪽)와 심각도는 별개다.
-  const dead = deadMarker(scenarios, deadPoint);
-  const deadColor = midDips ? main : edge;
+  // 처음에는 deadPoint 가 가리키는 빠듯 시나리오에 찍었는데, 그 선은 얇고
+  // 옅어서 표시만 붕 떠 보였다. 사람이 눈으로 좇는 선은 굵은 선이다.
+  //
+  // 그래서 보통 시나리오가 0원 위에 머무는 결제 방식에는 표시가 없다.
+  // 없는 게 맞다 — 그 화면의 적자는 빠듯 시나리오에만 있고 안내 상자도
+  // 경고가 아니라 주의로 뜬다. 얇은 선에 "위기" 를 찍으면 중앙 추정이
+  // 위험한 것처럼 읽힌다.
+  const crisis = crisisPoint(scenarios);
 
   return (
     <div className="rounded-2xl bg-gray-50 p-4">
@@ -170,27 +170,36 @@ export function ForecastChart({
             name="보통"
           />
 
-          {/* 잔고가 처음 0원 아래로 내려가는 달. 옅은 원을 뒤에 깔아 선 위의
-              평범한 점과 구별되게 한다. */}
-          {dead !== null && (
+          {/* 보통 시나리오가 처음 0원 아래로 내려가는 달. 옅은 무리, 속이 빈
+              고리, 가운데 점 세 겹으로 그려 선 위의 평범한 점과 구별한다. */}
+          {crisis !== null && (
             <ReferenceDot
-              x={dead.label}
-              y={dead.balance}
-              r={9}
-              fill={deadColor}
-              fillOpacity={0.18}
+              x={crisis.label}
+              y={crisis.balance}
+              r={11}
+              fill={main}
+              fillOpacity={0.15}
               stroke="none"
             />
           )}
-          {dead !== null && (
+          {crisis !== null && (
             <ReferenceDot
-              x={dead.label}
-              y={dead.balance}
-              r={4}
-              fill={deadColor}
-              stroke="#ffffff"
-              strokeWidth={2}
-              label={<CrisisLabel color={deadColor} />}
+              x={crisis.label}
+              y={crisis.balance}
+              r={6.5}
+              fill="#ffffff"
+              stroke={main}
+              strokeWidth={2.5}
+              label={<CrisisLabel color={main} />}
+            />
+          )}
+          {crisis !== null && (
+            <ReferenceDot
+              x={crisis.label}
+              y={crisis.balance}
+              r={2.5}
+              fill={main}
+              stroke="none"
             />
           )}
         </ComposedChart>
@@ -200,8 +209,7 @@ export function ForecastChart({
         굵은 선은 {SCENARIO_LABEL.NORMAL}, 아래 얇은 선은 {SCENARIO_LABEL.TIGHT}{' '}
         시나리오입니다
         {alternative && ` · 점선은 ${alternative.label}`}
-        {deadPoint !== null &&
-          ` · 위기는 ${SCENARIO_LABEL[deadPoint.level]} 기준 첫 적자 달`}
+        {crisis !== null && ' · 위기는 보통 시나리오의 첫 적자 달'}
       </p>
     </div>
   );
@@ -213,11 +221,11 @@ export function ForecastChart({
  * recharts 가 viewBox 로 점의 화면 좌표를 넣어 준다. 점 바로 옆에 붙여야
  * 어느 달의 일인지 눈으로 이어진다.
  *
- * 기본은 아래다. 적자 지점 바로 위에는 늘 보통 시나리오 선이 지나가서
- * (적자는 가장 아래 선에서 먼저 난다) 위에 달면 굵은 선의 데이터 점을 가린다.
+ * 기본은 위다. 표시가 굵은 선 위에 놓이므로 아래에 달면 그 선이 이어지는
+ * 자리를 가린다. 위쪽은 밴드뿐이라 가려도 잃는 것이 없다.
  *
- * 다만 적자가 깊으면 점이 눈금 글자 근처까지 내려와 아래에 달 자리가 없다.
- * 그때만 위로 올린다 — 그 정도로 내려온 점이면 굵은 선은 이미 한참 위에 있다.
+ * 적자가 첫 달에 얕게 나면 점이 위 여백에 붙어 말풍선이 잘린다. 그때만
+ * 아래로 내린다.
  */
 function CrisisLabel({
   color,
@@ -228,8 +236,8 @@ function CrisisLabel({
 }) {
   const x = viewBox?.x ?? 0;
   const y = viewBox?.y ?? 0;
-  const fitsBelow = y + PILL_OFFSET + PILL_HALF <= PLOT_BOTTOM;
-  const dy = fitsBelow ? PILL_OFFSET : -PILL_OFFSET;
+  const fitsAbove = y - PILL_OFFSET - PILL_HALF >= PLOT_TOP;
+  const dy = fitsAbove ? -PILL_OFFSET : PILL_OFFSET;
   return (
     <g transform={`translate(${x}, ${y + dy})`} style={{ pointerEvents: 'none' }}>
       <rect x={-17} y={-9} width={34} height={18} rx={9} fill={color} />
@@ -249,19 +257,20 @@ function CrisisLabel({
 }
 
 /**
- * 잔고가 처음 0원 아래로 내려가는 지점.
+ * 보통 시나리오가 처음 0원 아래로 내려가는 지점. 없으면 null.
  *
- * 백엔드가 준 deadPoint 의 시나리오와 달을 그대로 쓴다. 프론트에서 다시
- * 찾으면 적자 판정이 두 곳에 생겨 서로 어긋날 수 있다
- * (forecast/projection.py 의 _find_dead_point 가 유일한 기준이다).
+ * 응답의 deadPoint 를 쓰지 않는다. 그쪽은 "어느 시나리오든 가장 먼저
+ * 무너지는 달" 이라 보통 시나리오가 멀쩡한 화면에서도 값이 있다.
+ *
+ * 적자 기준은 백엔드와 같은 0원이다(forecast/projection.py 의
+ * _find_dead_point). 판정을 새로 만드는 게 아니라 받은 값에서 그 시나리오의
+ * 첫 적자 달을 고르는 것뿐이므로, 기준이 갈라지지 않는다.
  */
-function deadMarker(
+function crisisPoint(
   scenarios: Scenario[],
-  deadPoint: DeadPoint | null,
 ): { label: string; balance: number } | null {
-  if (deadPoint === null) return null;
-  const points = scenarios.find((s) => s.level === deadPoint.level)?.points ?? [];
-  const index = points.findIndex((p) => p.month === deadPoint.month);
+  const points = scenarios.find((s) => s.level === 'NORMAL')?.points ?? [];
+  const index = points.findIndex((p) => p.balance < 0);
   if (index < 0) return null;
   return { label: `${index + 1}개월`, balance: points[index].balance };
 }
