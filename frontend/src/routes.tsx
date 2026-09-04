@@ -1,8 +1,11 @@
-import type { ReactElement } from 'react';
+import { useEffect, type ReactElement } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 
+import { fetchBalance } from './api/balance';
+import { fetchOwnedCards } from './api/cards';
 import { DEFAULT_PERSONA_ID } from './api/personas';
 import { AppLayout } from './components/AppLayout';
+import { CardReaderIntro } from './components/CardReaderIntro';
 import { HomePage } from './pages/HomePage';
 import { PersonaSelectPage } from './pages/PersonaSelectPage';
 import { TransactionUploadPage } from './pages/TransactionUploadPage';
@@ -18,6 +21,33 @@ export interface RouteEntry {
 //
 // 페르소나를 고른 다음 목적지는 업로드가 아니라 가용잔고다 — 업로드는
 // 페르소나와 무관한 별개 진입점이라 아래 onNavigateToUpload로 따로 뺐다.
+/**
+ * 진입 연출(#38). 끝나면 대시보드로 넘긴다 — 사례 선택 화면이 아니다.
+ *
+ * 원안은 /personas 로 보냈는데, 가상 인물 셋을 먼저 늘어놓으면 아무 설명이
+ * 나오기 전에 "이건 데모입니다" 라고 말하는 셈이라 대시보드로 바로 착륙하게
+ * 해 둔 결정이 되돌아간다. 사례 전환은 헤더에 부차적으로 남긴다(AppLayout).
+ *
+ * 여는 동안 대시보드가 쓸 것을 미리 부르고 응답은 버린다. 캐시가 목적이
+ * 아니라 Render 를 깨우는 것이 목적이다 — 15분이면 잠들어 첫 요청이 30~60초
+ * 걸리는데, 그 대기를 카드를 긁는 동안으로 옮긴다. 이 화면이 연출 말고
+ * 값을 하는 지점이 여기다.
+ */
+function IntroRoute() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    fetchBalance(DEFAULT_PERSONA_ID).catch(() => undefined);
+    fetchOwnedCards(DEFAULT_PERSONA_ID).catch(() => undefined);
+  }, []);
+
+  return (
+    <CardReaderIntro
+      onComplete={() => navigate(`/balance/${DEFAULT_PERSONA_ID}`, { replace: true })}
+    />
+  );
+}
+
 function PersonaSelectRoute() {
   const navigate = useNavigate();
   return (
@@ -92,13 +122,9 @@ function LegacyRedirect() {
 // 새 라우트는 element 를 <AppLayout> 으로 감싼다. personaId 종속 화면이면
 // <AppLayout personaId={...}> 로 넘겨 탭이 뜨게 한다.
 export const routes: RouteEntry[] = [
-  // <Routes>는 매칭이 없으면 null을 렌더링한다. 배포 루트(/)가 그 상태로
-  // 나가면 헤더만 뜨고 본문이 빈다 — 심사위원이 맨 처음 여는 주소다.
-  // replace를 써서 뒤로가기에서 / ↔ /personas 루프가 안 생기게 한다.
-  // 착륙 화면을 사례 선택이 아니라 대시보드로 둔다. 가상 인물 셋을 늘어놓고
-  // 고르게 하면 아무 설명이 나오기 전에 "이건 데모입니다" 라고 말하는 셈이다.
-  // 사례 전환은 헤더의 계정 전환처럼 부차적으로 남는다(AppLayout 참조).
-  { path: '/', element: <Navigate to={`/balance/${DEFAULT_PERSONA_ID}`} replace /> },
+  // 배포 루트(/)는 심사위원이 맨 처음 여는 주소다. 여기서 진입 연출을 한 번
+  // 거치고 대시보드로 간다.
+  { path: '/', element: <IntroRoute /> },
   { path: '/personas', element: <PersonaSelectRoute /> },
   // 업로드는 페르소나와 무관한 별개 진입점이다(위 PersonaSelectRoute 주석
   // 참고) — personaId를 URL에 싣지 않는다.
