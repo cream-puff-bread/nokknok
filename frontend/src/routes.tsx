@@ -1,4 +1,4 @@
-import { useEffect, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 
 import { fetchBalance } from './api/balance';
@@ -22,6 +22,23 @@ export interface RouteEntry {
 // 페르소나를 고른 다음 목적지는 업로드가 아니라 가용잔고다 — 업로드는
 // 페르소나와 무관한 별개 진입점이라 아래 onNavigateToUpload로 따로 뺐다.
 /**
+ * 진입 연출을 이미 본 사람인지.
+ *
+ * 사파리 비공개 모드처럼 저장소 접근 자체가 예외를 던지는 환경이 있어 감싼다.
+ * 읽지 못하면 안 본 것으로 친다 — 한 번 더 보는 쪽이, 못 보고 지나가는 쪽보다
+ * 낫다.
+ */
+const INTRO_SEEN_KEY = 'nokknok-intro-seen';
+
+function hasSeenIntro(): boolean {
+  try {
+    return window.localStorage.getItem(INTRO_SEEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 진입 연출(#38). 끝나면 대시보드로 넘긴다 — 사례 선택 화면이 아니다.
  *
  * 원안은 /personas 로 보냈는데, 가상 인물 셋을 먼저 늘어놓으면 아무 설명이
@@ -36,14 +53,35 @@ export interface RouteEntry {
 function IntroRoute() {
   const navigate = useNavigate();
 
+  // 한 번 본 사람에게는 다시 묻지 않는다. 연출은 처음 한 번이라야 연출이고,
+  // 새로고침마다 다시 긁게 하면 그때부터는 관문이다.
+  //
+  // 첫 렌더에서 정한다. 그려 놓고 나중에 빼면 연출이 한 순간 번쩍인다.
+  // ?intro 를 붙이면 다시 볼 수 있다 — 팀에 보여줄 때 저장소를 비우지 않아도
+  // 되게 남겨 둔 문이다.
+  const [skipIntro] = useState(
+    () => !new URLSearchParams(window.location.search).has('intro') && hasSeenIntro(),
+  );
+
   useEffect(() => {
+    // 건너뛸 때는 대시보드가 곧바로 제 데이터를 부르므로 미리 부를 이유가 없다.
+    if (skipIntro) return;
     fetchBalance(DEFAULT_PERSONA_ID).catch(() => undefined);
     fetchOwnedCards(DEFAULT_PERSONA_ID).catch(() => undefined);
-  }, []);
+  }, [skipIntro]);
+
+  if (skipIntro) return <Navigate to={`/balance/${DEFAULT_PERSONA_ID}`} replace />;
 
   return (
     <CardReaderIntro
-      onComplete={() => navigate(`/balance/${DEFAULT_PERSONA_ID}`, { replace: true })}
+      onComplete={() => {
+        try {
+          window.localStorage.setItem(INTRO_SEEN_KEY, '1');
+        } catch {
+          // 저장하지 못해도 진입을 막지는 않는다. 다음 방문에 한 번 더 볼 뿐이다.
+        }
+        navigate(`/balance/${DEFAULT_PERSONA_ID}`, { replace: true });
+      }}
     />
   );
 }
