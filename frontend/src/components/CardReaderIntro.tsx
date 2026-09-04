@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { animate, motion, useMotionValue } from 'framer-motion';
+import { animate, motion, useMotionValue, useTransform } from 'framer-motion';
 
 import { BankCard } from './BankCard';
 
@@ -18,32 +18,75 @@ const READER_DISPLAY: Record<Phase, string> = {
 };
 
 /**
- * 표시등. 화면 전체가 밝은 톤이라 발광은 어두운 디스플레이 안에서만 쓴다 —
- * 흰 바탕 위의 글로우는 번져 보이기만 하고 켜진 느낌이 안 난다.
+ * 표시창 글자색. 발광은 어두운 표시창 안에서만 쓴다 — 흰 바탕 위의 글로우는
+ * 번져 보이기만 하고 켜진 느낌이 안 난다.
  */
-const INDICATOR_CLASS: Record<Phase, string> = {
-  ready: 'bg-white/20',
-  reading: 'bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.7)]',
-  success: 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.7)]',
-};
-
 const DISPLAY_TEXT_CLASS: Record<Phase, string> = {
-  ready: 'text-white/40',
+  ready: 'text-white/35',
   reading: 'text-amber-400',
   success: 'text-emerald-400',
 };
 
-// x는 카드결제기 슬롯 중앙을 0으로 둔 상대 오프셋이다. 카드는 슬롯 왼쪽에서
-// 시작해 오른쪽으로 긁어 통과시킨다 — 세로로 떨어뜨리는 리더기가 아니라
-// 가로로 긋는 카드결제기 동작이다.
-const START_X = -90;
+const LAMP_CLASS: Record<Phase, string> = {
+  ready: 'bg-gray-600',
+  reading: 'bg-amber-400',
+  success: 'bg-emerald-400',
+};
+
+/** 표시등이 기기 밖으로 번지는 빛. 꺼져 있을 때는 그리지 않는다. */
+const LAMP_GLOW_CLASS: Record<Phase, string> = {
+  ready: 'opacity-0',
+  reading: 'bg-amber-400 opacity-70',
+  success: 'bg-emerald-400 opacity-80',
+};
+
+/**
+ * 카드의 가로 오프셋(기기 중앙이 0). 카드는 기기 왼쪽 위에서 시작해 오른쪽으로
+ * 긁어 통과시킨다 — 세로로 떨어뜨리는 리더기가 아니라 가로로 긋는 동작이다.
+ *
+ * 폭에 따라 치수를 나눈다. 넓은 화면 값을 그대로 쓰면 폰에서 카드가 시작부터
+ * 화면 왼쪽 밖으로 반쯤 나가 잘린 채로 보인다. 화면 전체를 축소하는 방법도
+ * 있지만, 그러면 손가락을 움직인 거리와 카드가 움직인 거리가 어긋나 끌리는
+ * 느낌이 둔해진다.
+ */
+interface Geometry {
+  /** 쉴 때 카드가 기기 중앙에서 왼쪽으로 물러나 있는 거리. */
+  startX: number;
+  /** 여기까지 끌고 놓으면 성공으로 확정한다. */
+  successAt: number;
+  /** 성공 후 카드가 기기를 빠져나가 멈추는 지점. */
+  throughX: number;
+  card: string;
+}
+
+const GEOMETRY: Record<'wide' | 'narrow', Geometry> = {
+  wide: { startX: -150, successAt: 90, throughX: 240, card: 'h-44 w-72' },
+  narrow: { startX: -60, successAt: 45, throughX: 140, card: 'h-36 w-60' },
+};
+
+const NARROW_MAX_WIDTH = 640;
 const READ_THRESHOLD = 0;
-const SUCCESS_THRESHOLD = 70;
-const THROUGH_X = 170;
-const DRAG_CONSTRAINTS = { left: START_X, right: THROUGH_X };
+
+/**
+ * 쉴 때 카드가 기기보다 위에 떠 있는 높이.
+ *
+ * 카드를 기기와 같은 높이에 두면 시작부터 절반이 기기에 가려 무엇을 끌어야
+ * 하는지 안 보인다. 위에 띄워 두고 끌수록 내려와 기기 뒤로 들어가게 하면,
+ * 가로로만 미는데도 "집어서 긁는" 동작으로 읽힌다.
+ */
+const REST_Y = -90;
+
+/**
+ * 기기를 무대 중앙보다 아래로 내리는 거리.
+ *
+ * 둘 다 중앙에 두면 쉴 때부터 카드 아래쪽이 기기에 걸쳐 있어, 통과하기 전에
+ * 이미 겹쳐 있는 모양이 된다. 기기를 내리고 카드를 띄워 둘을 완전히 떼어
+ * 놓아야 "아직 안 긁었다" 가 한눈에 보인다.
+ */
+const READER_DROP = 70;
 
 // 성공 후 타임라인: SUCCESS 를 잠깐 보여준 뒤 화면을 위로 밀며 페이드아웃하고,
-// 그게 끝나야 실제 라우팅이 일어난다 — 카드와 결제기가 뚝 끊기지 않고 사라지며
+// 그게 끝나야 실제 라우팅이 일어난다 — 카드와 기기가 뚝 끊기지 않고 사라지며
 // 넘어가게 한다.
 const SUCCESS_HOLD_MS = 600;
 const EXIT_MS = 500;
@@ -63,9 +106,15 @@ interface CardReaderIntroProps {
 }
 
 /**
- * 카드를 긁어 들어가는 진입 연출. 원안은 #38(팀원 작업)이고 여기서는 색만
- * 대시보드에 맞췄다 — 다크 모드와 외부 CDN 폰트는 가져오지 않는다. 나머지
- * 화면에 다크 대응이 하나도 없어서, 그것만 어두우면 넘어가는 순간 톤이 튄다.
+ * 카드를 긁어 들어가는 진입 연출. 원안은 #38(팀원 작업)이다.
+ *
+ * 원안은 슬롯을 얇은 가로선으로 두고 표시창을 그 아래 따로 놓았는데, 그러면
+ * 카드가 아무것도 아닌 선 위를 지나가고 옆에서 다른 상자가 READY 라고 말하는
+ * 모양이 된다. 기기를 입체로 세우고 카드가 그 **뒤로** 지나가게 하면 통과하는
+ * 것처럼 보인다 — 카드가 기기에 가려지는 순간이 곧 읽히는 순간이다.
+ *
+ * 색은 대시보드에 맞췄고 다크 모드와 외부 CDN 폰트는 가져오지 않는다. 나머지
+ * 화면에 dark: 대응이 하나도 없어서 이 화면만 어두우면 넘어가는 순간 톤이 튄다.
  *
  * 연출로만 두면 심사위원이 제품을 보기까지 한 단계가 더 생길 뿐이다. 이 화면이
  * 값을 하는 지점은 따로 있다 — Render 가 15분이면 잠들어 첫 요청이 30~60초
@@ -76,7 +125,20 @@ export function CardReaderIntro({ onComplete }: CardReaderIntroProps) {
   const [locked, setLocked] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [skipShown, setSkipShown] = useState(false);
-  const x = useMotionValue(START_X);
+
+  // 여는 순간의 폭으로 한 번만 정한다. 연출이 도는 몇 초 사이에 창 크기를
+  // 바꾸는 경우까지 따라가면 드래그 중에 카드가 튄다.
+  const [size] = useState(() =>
+    typeof window !== 'undefined' && window.innerWidth < NARROW_MAX_WIDTH
+      ? GEOMETRY.narrow
+      : GEOMETRY.wide,
+  );
+
+  const x = useMotionValue(size.startX);
+  // 기기에 닿기 전에 다 내려와 있어야 뒤로 들어가는 것처럼 보인다.
+  const y = useTransform(x, [size.startX, -40], [REST_Y, 0]);
+  // 손으로 긋는 카드는 수평을 유지하지 않는다. 각도를 조금 주면 뻣뻣함이 준다.
+  const rotate = useTransform(x, [size.startX, size.throughX], [-3, 5]);
 
   useEffect(() => {
     const timer = setTimeout(() => setSkipShown(true), SKIP_REVEAL_MS);
@@ -90,54 +152,47 @@ export function CardReaderIntro({ onComplete }: CardReaderIntroProps) {
 
   const handleDragEnd = () => {
     if (locked) return;
-    if (x.get() >= SUCCESS_THRESHOLD) {
+    if (x.get() >= size.successAt) {
       setLocked(true);
       setPhase('success');
-      animate(x, THROUGH_X, { type: 'spring', stiffness: 260, damping: 26 });
+      animate(x, size.throughX, { type: 'spring', stiffness: 260, damping: 26 });
       setTimeout(() => setExiting(true), SUCCESS_HOLD_MS);
       setTimeout(onComplete, SUCCESS_HOLD_MS + EXIT_MS);
       return;
     }
     setPhase('ready');
-    animate(x, START_X, { type: 'spring', stiffness: 320, damping: 30 });
+    animate(x, size.startX, { type: 'spring', stiffness: 320, damping: 30 });
   };
 
   return (
     <motion.div
       animate={{ opacity: exiting ? 0 : 1, y: exiting ? -32 : 0 }}
       transition={{ duration: EXIT_MS / 1000, ease: 'easeIn' }}
-      className="relative flex min-h-screen flex-col items-center justify-center gap-6 bg-gray-50 px-4"
+      className="relative flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4"
     >
       {/* 심사위원이 맨 처음 보는 화면인데 카드 면의 로고 말고는 이 서비스가
           무엇인지 말하는 것이 없었다. 헤더에 쓰는 문장을 그대로 얹는다. */}
-      <div className="mb-2 text-center">
+      <div className="text-center">
         <p className="text-2xl font-bold text-gray-900">넉넉</p>
         <p className="mt-1 text-sm text-gray-500">
           이미 나갈 돈을 뺀 진짜 쓸 수 있는 잔고와, 어느 카드로 결제할지 계산해 드립니다
         </p>
       </div>
 
-      {/* 슬롯과 카드가 겹치는 긁는 영역. 같은 컨테이너 안에서 둘 다 세로
-          중앙에 있어 카드가 슬롯 위를 정확히 지나가는 것처럼 보인다. */}
-      <div className="relative flex h-48 w-80 items-center justify-center">
-        {/* 슬롯은 카드보다 눈에 띄게 길어야 한다. 카드 폭과 비슷하면 드래그
-            내내 카드에 가려 양옆 조각만 보인다. shrink-0 이 없으면 flex 안에서
-            지정 폭이 무시되고 컨테이너 폭까지 줄어든다. */}
-        <div className="h-2.5 w-[480px] max-w-[90vw] shrink-0 rounded-full bg-gray-200" />
-
+      {/* 카드와 기기를 한 무대에 겹쳐 놓는다. 카드가 기기보다 뒤(z 가 낮음)에
+          있어야 끌었을 때 가려지고, 그 가려짐이 통과처럼 읽힌다. */}
+      {/* overflow-hidden 은 카드가 오른쪽으로 빠져나갈 때 페이지에 가로
+          스크롤이 생기는 것을 막는다. 무대 밖으로 나가 잘리는 편이 맞기도 하다. */}
+      <div className="relative mt-6 flex h-[440px] w-full max-w-xl items-center justify-center overflow-hidden">
         <motion.div
           drag={locked ? false : 'x'}
-          dragConstraints={DRAG_CONSTRAINTS}
+          dragConstraints={{ left: size.startX, right: size.throughX }}
           dragElastic={0.06}
           dragMomentum={false}
           onDrag={handleDrag}
           onDragEnd={handleDragEnd}
-          style={{ x, touchAction: 'none' }}
-          // 원안은 성공 시 0.4까지 흐렸다. 어두운 배경에서는 카드가 어둠으로
-          // 물러나는 것처럼 보이지만, 밝은 배경에서는 그냥 비활성된 요소로
-          // 읽힌다. 여기서는 살짝만 낮추고 퇴장 애니메이션이 데려가게 둔다.
-          animate={{ opacity: phase === 'success' ? 0.85 : 1, rotate: phase === 'success' ? 2 : 0 }}
-          className="absolute top-1/2 left-1/2 -mt-[88px] -ml-[144px] h-44 w-72 cursor-grab select-none active:cursor-grabbing"
+          style={{ x, y, rotate, touchAction: 'none' }}
+          className={`absolute z-10 cursor-grab drop-shadow-2xl select-none active:cursor-grabbing ${size.card}`}
         >
           <BankCard
             className="h-full w-full rounded-3xl"
@@ -148,26 +203,13 @@ export function CardReaderIntro({ onComplete }: CardReaderIntroProps) {
             title="GUEST USER"
           />
         </motion.div>
-      </div>
 
-      {/* 결제기 본체는 흰 카드, 디스플레이만 어둡게 둔다. 기기의 표시창은
-          원래 어둡고, 카드 면과 톤이 이어져 둘이 한 세트로 읽힌다. */}
-      <div className="w-72 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-        <div className="flex items-center justify-between rounded-md bg-gray-900 px-4 py-3">
-          <span
-            className={`text-sm font-bold tracking-wide transition-colors ${DISPLAY_TEXT_CLASS[phase]}`}
-          >
-            {READER_DISPLAY[phase]}
-          </span>
-          <span
-            className={`h-2.5 w-2.5 rounded-full transition-colors ${INDICATOR_CLASS[phase]}`}
-          />
+        <div style={{ transform: `translateY(${READER_DROP}px)` }} className="relative z-20">
+          <Reader phase={phase} />
         </div>
       </div>
 
-      <p className="h-5 text-center text-xs tracking-wide text-gray-500">
-        {PHASE_CAPTION[phase]}
-      </p>
+      <p className="mt-8 h-5 text-center text-sm text-gray-500">{PHASE_CAPTION[phase]}</p>
 
       <button
         type="button"
@@ -179,5 +221,46 @@ export function CardReaderIntro({ onComplete }: CardReaderIntroProps) {
         건너뛰고 바로 보기
       </button>
     </motion.div>
+  );
+}
+
+/**
+ * 카드결제기 본체.
+ *
+ * 사진 한 장 없이 기기처럼 보이게 하는 것은 세 가지다 — 윗면을 따로 그려
+ * 두께를 만들고, 아래로 긴 그림자를 깔아 벽에서 떠 있게 하고, 표시창만
+ * 어둡게 파 넣는 것. 평평한 흰 상자로 두면 카드가 지나가도 그냥 겹친
+ * 사각형으로 보인다.
+ */
+function Reader({ phase }: { phase: Phase }) {
+  return (
+    <div className="w-[400px] max-w-full">
+      {/* 윗면. 본체보다 살짝 좁혀 두면 위에서 비스듬히 보는 것처럼 읽힌다. */}
+      <div className="mx-3 h-4 rounded-t-2xl bg-gradient-to-b from-white to-gray-100 ring-1 ring-gray-200/70" />
+
+      <div className="rounded-2xl bg-gradient-to-b from-gray-50 via-white to-gray-200 p-4 shadow-[0_28px_50px_-18px_rgba(15,23,42,0.5)] ring-1 ring-gray-300/60">
+        <div className="flex items-center gap-4">
+          <div className="flex-1 rounded-lg bg-[#0f1216] px-5 py-3.5 shadow-[inset_0_2px_6px_rgba(0,0,0,0.55)]">
+            <span
+              className={`block text-center font-mono text-lg font-bold tracking-[0.3em] transition-colors ${DISPLAY_TEXT_CLASS[phase]}`}
+              // 세그먼트 표시창의 번짐. 글자 자체가 빛나야 LED 로 읽힌다.
+              style={{ textShadow: phase === 'ready' ? 'none' : '0 0 14px currentColor' }}
+            >
+              {READER_DISPLAY[phase]}
+            </span>
+          </div>
+
+          <span className="relative flex h-6 w-6 shrink-0 items-center justify-center">
+            <span
+              aria-hidden
+              className={`absolute -inset-2 rounded-full blur-lg transition-opacity duration-300 ${LAMP_GLOW_CLASS[phase]}`}
+            />
+            <span
+              className={`relative h-4 w-4 rounded-full ring-1 ring-black/10 transition-colors duration-300 ${LAMP_CLASS[phase]}`}
+            />
+          </span>
+        </div>
+      </div>
+    </div>
   );
 }
