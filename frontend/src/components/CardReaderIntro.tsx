@@ -61,7 +61,7 @@ interface Geometry {
 
 const GEOMETRY: Record<'wide' | 'narrow', Geometry> = {
   wide: { startX: -150, successAt: 90, throughX: 240, card: 'h-44 w-72' },
-  narrow: { startX: -60, successAt: 45, throughX: 140, card: 'h-36 w-60' },
+  narrow: { startX: -50, successAt: 40, throughX: 140, card: 'h-36 w-60' },
 };
 
 const NARROW_MAX_WIDTH = 640;
@@ -182,8 +182,12 @@ export function CardReaderIntro({ onComplete }: CardReaderIntroProps) {
       {/* 카드와 기기를 한 무대에 겹쳐 놓는다. 카드가 기기보다 뒤(z 가 낮음)에
           있어야 끌었을 때 가려지고, 그 가려짐이 통과처럼 읽힌다. */}
       {/* overflow-hidden 은 카드가 오른쪽으로 빠져나갈 때 페이지에 가로
-          스크롤이 생기는 것을 막는다. 무대 밖으로 나가 잘리는 편이 맞기도 하다. */}
-      <div className="relative mt-6 flex h-[440px] w-full max-w-xl items-center justify-center overflow-hidden">
+          스크롤이 생기는 것을 막는다. 빠져나가며 잘리는 것은 맞는 모양이다.
+          다만 무대가 좁으면 쉴 때부터 카드 왼쪽이 잘려서, 시작 위치가 들어갈
+          만큼은 넓혀 둬야 한다. */}
+      <div className="relative mt-6 flex h-[440px] w-full max-w-3xl items-center justify-center overflow-hidden">
+        <ReaderShell phase={phase} layer="back" />
+
         <motion.div
           drag={locked ? false : 'x'}
           dragConstraints={{ left: size.startX, right: size.throughX }}
@@ -192,7 +196,7 @@ export function CardReaderIntro({ onComplete }: CardReaderIntroProps) {
           onDrag={handleDrag}
           onDragEnd={handleDragEnd}
           style={{ x, y, rotate, touchAction: 'none' }}
-          className={`absolute z-10 cursor-grab drop-shadow-2xl select-none active:cursor-grabbing ${size.card}`}
+          className={`absolute z-20 cursor-grab drop-shadow-2xl select-none active:cursor-grabbing ${size.card}`}
         >
           <BankCard
             className="h-full w-full rounded-3xl"
@@ -204,9 +208,7 @@ export function CardReaderIntro({ onComplete }: CardReaderIntroProps) {
           />
         </motion.div>
 
-        <div style={{ transform: `translateY(${READER_DROP}px)` }} className="relative z-20">
-          <Reader phase={phase} />
-        </div>
+        <ReaderShell phase={phase} layer="front" />
       </div>
 
       <p className="mt-8 h-5 text-center text-sm text-gray-500">{PHASE_CAPTION[phase]}</p>
@@ -225,20 +227,44 @@ export function CardReaderIntro({ onComplete }: CardReaderIntroProps) {
 }
 
 /**
- * 카드결제기 본체.
+ * 카드결제기 본체. 뒤판과 앞판을 따로 그린다.
  *
- * 사진 한 장 없이 기기처럼 보이게 하는 것은 세 가지다 — 윗면을 따로 그려
+ * 통째로 한 겹으로 두면 카드는 기기 "뒤" 를 지날 수밖에 없어서, 통과가 아니라
+ * 가려졌다 나오는 것으로 보인다. 뒤판을 앞판보다 위로 올려 두 판 사이에 틈을
+ * 만들고 카드를 그 사이(z-20)에 넣으면, 카드 아랫부분은 앞판에 가리고 윗부분은
+ * 뒤판 앞에 놓여 실제로 슬롯에 꽂힌 모양이 된다.
+ *
+ * 두 겹을 같은 DOM 구조로 그리고 각자 제 몫이 아닌 쪽만 invisible 로 숨긴다.
+ * 레이아웃이 완전히 같아야 두 판이 한 기기로 맞물리는데, 구조를 따로 짜면
+ * 폭이나 패딩이 조금만 어긋나도 틈이 벌어져 보인다.
+ *
+ * 사진 한 장 없이 기기처럼 보이게 하는 것은 세 가지다 — 뒤판을 밝게 세워
  * 두께를 만들고, 아래로 긴 그림자를 깔아 벽에서 떠 있게 하고, 표시창만
- * 어둡게 파 넣는 것. 평평한 흰 상자로 두면 카드가 지나가도 그냥 겹친
- * 사각형으로 보인다.
+ * 어둡게 파 넣는 것.
  */
-function Reader({ phase }: { phase: Phase }) {
-  return (
-    <div className="w-[400px] max-w-full">
-      {/* 윗면. 본체보다 살짝 좁혀 두면 위에서 비스듬히 보는 것처럼 읽힌다. */}
-      <div className="mx-3 h-4 rounded-t-2xl bg-gradient-to-b from-white to-gray-100 ring-1 ring-gray-200/70" />
+function ReaderShell({ phase, layer }: { phase: Phase; layer: 'back' | 'front' }) {
+  const back = layer === 'back';
 
-      <div className="rounded-2xl bg-gradient-to-b from-gray-50 via-white to-gray-200 p-4 shadow-[0_28px_50px_-18px_rgba(15,23,42,0.5)] ring-1 ring-gray-300/60">
+  return (
+    <div
+      className={`absolute top-1/2 left-1/2 w-[400px] max-w-full ${back ? 'z-10' : 'z-30'}`}
+      style={{ transform: `translate(-50%, calc(-50% + ${READER_DROP}px))` }}
+    >
+      {/* 뒤판. 앞판보다 위로 나와 있는 이 띠가 카드가 꽂히는 자리다. */}
+      <div
+        aria-hidden={!back}
+        className={`mx-3 h-16 rounded-t-2xl bg-gradient-to-b from-gray-100 via-white to-gray-50 ring-1 ring-gray-200/80 ${
+          back ? '' : 'invisible'
+        }`}
+      />
+
+      {/* 앞판. 뒤판 위로 겹쳐 올려 둘이 한 몸으로 보이게 한다. */}
+      <div
+        aria-hidden={back}
+        className={`-mt-9 rounded-2xl bg-gradient-to-b from-gray-50 via-white to-gray-200 p-4 shadow-[0_28px_50px_-18px_rgba(15,23,42,0.5)] ring-1 ring-gray-300/60 ${
+          back ? 'invisible' : ''
+        }`}
+      >
         <div className="flex items-center gap-4">
           <div className="flex-1 rounded-lg bg-[#0f1216] px-5 py-3.5 shadow-[inset_0_2px_6px_rgba(0,0,0,0.55)]">
             <span
