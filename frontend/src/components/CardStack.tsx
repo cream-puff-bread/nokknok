@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 
 import { BankCard } from './BankCard';
 import { formatWon, type OwnedCard } from '../types/contract';
@@ -29,12 +29,30 @@ const CARD_SURFACES = ['bg-slate-800', 'bg-slate-700', 'bg-slate-600', 'bg-slate
  */
 const STACK_GAP = 72;
 /**
- * 마우스를 올린 카드 아래를 벌리는 간격.
+ * 누른 카드가 앞으로 오기 전에 위로 솟는 거리.
  *
- * 카드 높이(208px)보다 넉넉히 작게 둬서 아래 카드가 절반 가까이 걸치게 한다.
- * 완전히 떼어 놓으면 덱에서 한 장이 빠져나온 것처럼 보여 쌓인 느낌이 끊긴다.
+ * 팀원 시안은 카드 높이의 130% 를 썼는데, 그건 카드가 한 장뿐인 지갑이라
+ * 가능했다. 우리 덱은 위에 "내 카드" 제목이 붙어 있어 그만큼 솟으면 제목을
+ * 덮는다. 한 칸 간격(72px)보다 조금 작게 잡아 "뽑혔다" 가 보이는 만큼만 든다.
  */
-const HOVER_GAP = 152;
+const PULL_LIFT = 64;
+
+/**
+ * 솟는 데 걸리는 시간과, 앞자리로 내려앉는 데 걸리는 시간.
+ *
+ * 두 값은 각 단계의 CSS 전이 시간과 **정확히 같아야 한다**. 처음에는 솟는
+ * 전이가 300ms 인데 자리를 380ms 뒤에 바꿨더니, 그 사이 80ms 동안 카드가 위에
+ * 멈춰 있어 한 동작이 아니라 두 동작으로 끊겨 보였다.
+ *
+ * 내려앉는 쪽을 더 길게 둔다. 뽑을 때는 짧게 채고 넣을 때는 미끄러지듯
+ * 들어가는 편이 손으로 카드를 다루는 느낌에 가깝다.
+ *
+ * 이 두 단계가 도는 동안에는 다른 카드를 눌러도 받지 않는다 — 순서를 실제로
+ * 바꾸는 동작이라 겹치면 어느 카드가 어디로 가는지 알 수 없다.
+ */
+const PULL_MS = 300;
+const SETTLE_MS = 540;
+
 /**
  * 카드 높이.
  *
@@ -42,6 +60,7 @@ const HOVER_GAP = 152;
  * (85.6 x 53.98mm, 약 1.586:1)에 가깝다. 납작하면 카드로 안 읽힌다.
  */
 const CARD_HEIGHT = 208;
+
 
 interface CardStackProps {
   cards: OwnedCard[];
@@ -61,63 +80,127 @@ interface CardStackProps {
  * 그러면 뒤 카드들은 위 띠만 드러나므로 이름을 BankCard 의 위쪽 슬롯(brand)에
  * 넣는다. 원래 자리인 아래쪽 title 에 두면 가려져서 어느 카드인지 알 수 없다.
  *
- * 마우스를 올리면 그 카드 아래를 벌려 실적까지 보여주고, 누르면 혜택 구간과
- * 제외 항목이 열린다. 훑어보는 것과 자세히 보는 것을 나눈다.
+ * 뒤 카드를 누르면 지갑에서 한 장 뽑듯 위로 솟았다가 맨 앞자리로 내려앉는다.
+ * 앞에 선 카드를 누르면 혜택 구간과 제외 항목이 열린다. 같은 클릭이지만 카드가
+ * 어디 있느냐로 갈린다 — 뒤에 있으면 꺼내고, 앞에 있으면 들여다본다.
+ *
+ * 마우스를 올리는 것만으로는 아무것도 움직이지 않는다. 올린 카드를 앞으로
+ * 끌어내 봤는데, 카드가 커서 밑에서 빠져나가면 그 자리에 다른 카드가 들어오고
+ * 그것이 또 호버로 잡혀 두 장이 서로를 밀어냈다. 순서를 바꾸는 일은 사람이
+ * 분명히 누른 것에만 맡긴다.
  */
 export function CardStack({ cards, onSelect }: CardStackProps) {
-  const [hovered, setHovered] = useState<number | null>(null);
+  // 화면에 쌓인 순서. 값은 cards 의 인덱스이고, 배열 앞쪽이 위(뒤)다.
+  //
+  // 응답 배열을 그대로 쓰지 않고 따로 들고 있는 이유는 누를 때마다 순서가
+  // 바뀌기 때문이다. cards 자체를 건드리지 않으므로 상위가 다시 받아 와도
+  // 원래 순서가 남는다.
+  const ids = cards.map((c) => c.cardId).join(',');
+  const [stack, setStack] = useState<number[]>(() => cards.map((_, i) => i).reverse());
+  const [moving, setMoving] = useState<{ card: number; phase: 'pull' | 'settle' } | null>(null);
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const timer = useRef<number | null>(null);
 
-  const offsetOf = (index: number) =>
-    // 마우스를 올린 카드보다 아래에 있는 카드들만 밀어 내린다. 위쪽은
-    // 그대로 둬야 방금 올린 카드가 제자리에 머문다.
-    index * STACK_GAP + (hovered !== null && index > hovered ? HOVER_GAP - STACK_GAP : 0);
+  // 사례를 바꾸면 카드가 통째로 갈린다. 그때는 쌓인 순서도 처음으로 되돌린다.
+  useEffect(() => {
+    setStack(cards.map((_, i) => i).reverse());
+    setMoving(null);
+    // 카드 목록이 실제로 바뀐 경우만 본다. cards 는 렌더마다 새 배열일 수 있다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ids]);
 
-  // 쉴 때 높이로 고정한다. 호버로 벌어진 만큼 아래로 넘치게 두는 것이지
-  // 칸을 늘리지 않는다 — 늘리면 아래에 있는 확정 지출이 그때마다 밀려
-  // 내려가고, 왼쪽 열과 맞춰 둔 아래 선도 흔들린다.
+  useEffect(
+    () => () => {
+      if (timer.current !== null) window.clearTimeout(timer.current);
+    },
+    [],
+  );
+
   const height = (cards.length - 1) * STACK_GAP + CARD_HEIGHT;
+  const frontAt = stack.length - 1;
 
-  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+  // 누른 카드를 위로 솟게 했다가 맨 앞자리로 내려놓는다. 이미 앞에 선 카드는
+  // 옮길 곳이 없으므로 그대로 자세히 보기로 넘긴다.
+  const press = (position: number) => {
+    if (moving !== null) return;
+    if (position === frontAt) {
+      onSelect(cards[stack[position]]);
+      return;
+    }
+    const card = stack[position];
+    setMoving({ card, phase: 'pull' });
+
+    // 솟기가 끝나는 그 순간에 자리를 바꾼다. 바뀐 자리로 가는 것도 전이라,
+    // 카드는 멈추지 않고 솟은 높이에서 앞자리까지 이어서 미끄러진다.
+    timer.current = window.setTimeout(() => {
+      setStack((prev) => [...prev.filter((c) => c !== card), card]);
+      setMoving({ card, phase: 'settle' });
+      timer.current = window.setTimeout(() => setMoving(null), SETTLE_MS);
+    }, PULL_MS);
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, position: number) => {
     const delta = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
     if (delta === 0) return;
     event.preventDefault();
-    const next = (index + delta + cards.length) % cards.length;
+    const next = stack[(position + delta + stack.length) % stack.length];
     refs.current[next]?.focus();
-    setHovered(next);
   };
 
   return (
-    <div className="relative" style={{ height }} onMouseLeave={() => setHovered(null)}>
-      {/* 첫 카드를 맨 아래에 두려면 그리는 순서를 뒤집는다. i 가 클수록
-          아래이자 앞이므로, 뒤집은 배열의 마지막(원래 첫 카드)이 앞에 온다. */}
-      {[...cards].reverse().map((card, i) => {
+    <div className="relative" style={{ height }}>
+      {/* 그리는 순서는 cards 그대로 두고 쌓인 자리는 top·z 로만 만든다.
+          stack 순서대로 그리면 순서가 바뀔 때 React 가 DOM 노드를 실제로
+          옮기는데, 옮겨진 노드는 돌고 있던 CSS 전이가 초기화된다. 그러면
+          앞자리로 내려앉는 동작이 통째로 건너뛰어 순간이동처럼 보인다(실측). */}
+      {cards.map((card, cardIndex) => {
+        const position = stack.indexOf(cardIndex);
         const active = card.benefits.some((b) => b.active);
         const remaining = (card.perfNextThreshold ?? 0) - card.perfCurrent;
-        const open = hovered === i;
+        const isFront = position === frontAt;
+        const phase = moving?.card === cardIndex ? moving.phase : null;
+        // 내려앉는 동안에도 맨 위에 있어야 다른 카드 뒤로 숨지 않고 미끄러진다.
+        const lifted = phase !== null;
 
         return (
           <button
             key={card.cardId}
             ref={(el) => {
-              refs.current[i] = el;
+              refs.current[cardIndex] = el;
             }}
             type="button"
-            onMouseEnter={() => setHovered(i)}
-            onFocus={() => setHovered(i)}
-            onKeyDown={(event) => onKeyDown(event, i)}
-            onClick={() => onSelect(card)}
-            aria-label={`${card.cardName} 자세히 보기`}
-            style={{ top: offsetOf(i), zIndex: i, height: CARD_HEIGHT }}
+            onKeyDown={(event) => onKeyDown(event, position)}
+            onClick={() => press(position)}
+            aria-label={
+              isFront ? `${card.cardName} 자세히 보기` : `${card.cardName} 앞으로 가져오기`
+            }
+            style={{
+              top: position * STACK_GAP,
+              // 솟는 동안에는 모든 카드 위로. 그러지 않으면 앞 카드에 가려
+              // 뽑히는 게 안 보인다.
+              zIndex: lifted ? stack.length : position,
+              height: CARD_HEIGHT,
+              // 솟을 때 옆으로도 조금 빠진다. 수직으로만 오르내리면 자리를 옮기는
+              // 것이 아니라 위아래로 튀는 것처럼 보인다.
+              transform:
+                phase === 'pull' ? `translate(10px, -${PULL_LIFT}px) scale(1.04)` : undefined,
+              transitionDuration: `${phase === 'pull' ? PULL_MS : SETTLE_MS}ms`,
+              // 뽑을 때는 짧게 채고, 넣을 때는 미끄러지듯.
+              transitionTimingFunction:
+                phase === 'pull' ? 'cubic-bezier(.4,0,.2,1)' : 'cubic-bezier(.2,.8,.25,1)',
+            }}
             className={`absolute inset-x-0 text-left
-              transition-[top,box-shadow] duration-300 ease-out motion-reduce:transition-none
+              transition-[top,transform,filter] motion-reduce:transition-none
               rounded-3xl focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2
-              ${open ? 'drop-shadow-2xl' : 'drop-shadow-lg'}`}
+              ${lifted ? 'drop-shadow-2xl' : 'drop-shadow-lg hover:drop-shadow-2xl'}`}
           >
             <BankCard
               className="h-full rounded-3xl ring-1 ring-black/40"
-              surface={CARD_SURFACES[i % CARD_SURFACES.length]}
-              accent={CARD_ACCENTS[i % CARD_ACCENTS.length]}
+              // 바탕은 자리를 따르고 강조색은 카드를 따른다. 앞으로 나올수록
+              // 밝아지는 것은 빛을 받는 것처럼 읽혀 자연스럽지만, 카드마다 정한
+              // 색까지 자리를 따라 바뀌면 다른 카드가 온 것처럼 보인다.
+              surface={CARD_SURFACES[position % CARD_SURFACES.length]}
+              accent={CARD_ACCENTS[cardIndex % CARD_ACCENTS.length]}
               brand={card.cardName}
               subtitle={card.issuer}
               // 아래 블록은 앞에 선 카드에서만 보인다. 굵게 나오는 자리라
@@ -144,7 +227,7 @@ export function CardStack({ cards, onSelect }: CardStackProps) {
                   넷이라 무엇을 봐야 할지 알기 어렵다. */}
               <div
                 className={`mt-2 transition-opacity duration-200 motion-reduce:transition-none ${
-                  open ? 'opacity-100' : 'opacity-0'
+                  isFront ? 'opacity-100' : 'opacity-0'
                 }`}
               >
                 <div className="h-1 overflow-hidden rounded-full bg-white/20">
