@@ -1,11 +1,13 @@
-import type { ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 
+import { fetchBalance } from './api/balance';
+import { fetchOwnedCards } from './api/cards';
+import { DEFAULT_PERSONA_ID } from './api/personas';
 import { AppLayout } from './components/AppLayout';
-import { BalanceDashboardPage } from './pages/BalanceDashboardPage';
+import { CardReaderIntro } from './components/CardReaderIntro';
+import { HomePage } from './pages/HomePage';
 import { PersonaSelectPage } from './pages/PersonaSelectPage';
-import { RouteResultPage } from './pages/RouteResultPage';
-import { SimulationPage } from './pages/SimulationPage';
 import { TransactionUploadPage } from './pages/TransactionUploadPage';
 
 export interface RouteEntry {
@@ -19,6 +21,71 @@ export interface RouteEntry {
 //
 // 페르소나를 고른 다음 목적지는 업로드가 아니라 가용잔고다 — 업로드는
 // 페르소나와 무관한 별개 진입점이라 아래 onNavigateToUpload로 따로 뺐다.
+/**
+ * 진입 연출을 이미 본 사람인지.
+ *
+ * 사파리 비공개 모드처럼 저장소 접근 자체가 예외를 던지는 환경이 있어 감싼다.
+ * 읽지 못하면 안 본 것으로 친다 — 한 번 더 보는 쪽이, 못 보고 지나가는 쪽보다
+ * 낫다.
+ */
+const INTRO_SEEN_KEY = 'nokknok-intro-seen';
+
+function hasSeenIntro(): boolean {
+  try {
+    return window.localStorage.getItem(INTRO_SEEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 진입 연출(#38). 끝나면 대시보드로 넘긴다 — 사례 선택 화면이 아니다.
+ *
+ * 원안은 /personas 로 보냈는데, 가상 인물 셋을 먼저 늘어놓으면 아무 설명이
+ * 나오기 전에 "이건 데모입니다" 라고 말하는 셈이라 대시보드로 바로 착륙하게
+ * 해 둔 결정이 되돌아간다. 사례 전환은 헤더에 부차적으로 남긴다(AppLayout).
+ *
+ * 여는 동안 대시보드가 쓸 것을 미리 부르고 응답은 버린다. 캐시가 목적이
+ * 아니라 Render 를 깨우는 것이 목적이다 — 15분이면 잠들어 첫 요청이 30~60초
+ * 걸리는데, 그 대기를 카드를 긁는 동안으로 옮긴다. 이 화면이 연출 말고
+ * 값을 하는 지점이 여기다.
+ */
+function IntroRoute() {
+  const navigate = useNavigate();
+
+  // 한 번 본 사람에게는 다시 묻지 않는다. 연출은 처음 한 번이라야 연출이고,
+  // 새로고침마다 다시 긁게 하면 그때부터는 관문이다.
+  //
+  // 첫 렌더에서 정한다. 그려 놓고 나중에 빼면 연출이 한 순간 번쩍인다.
+  // ?intro 를 붙이면 다시 볼 수 있다 — 팀에 보여줄 때 저장소를 비우지 않아도
+  // 되게 남겨 둔 문이다.
+  const [skipIntro] = useState(
+    () => !new URLSearchParams(window.location.search).has('intro') && hasSeenIntro(),
+  );
+
+  useEffect(() => {
+    // 건너뛸 때는 대시보드가 곧바로 제 데이터를 부르므로 미리 부를 이유가 없다.
+    if (skipIntro) return;
+    fetchBalance(DEFAULT_PERSONA_ID).catch(() => undefined);
+    fetchOwnedCards(DEFAULT_PERSONA_ID).catch(() => undefined);
+  }, [skipIntro]);
+
+  if (skipIntro) return <Navigate to={`/balance/${DEFAULT_PERSONA_ID}`} replace />;
+
+  return (
+    <CardReaderIntro
+      onComplete={() => {
+        try {
+          window.localStorage.setItem(INTRO_SEEN_KEY, '1');
+        } catch {
+          // 저장하지 못해도 진입을 막지는 않는다. 다음 방문에 한 번 더 볼 뿐이다.
+        }
+        navigate(`/balance/${DEFAULT_PERSONA_ID}`, { replace: true });
+      }}
+    />
+  );
+}
+
 function PersonaSelectRoute() {
   const navigate = useNavigate();
   return (
@@ -65,24 +132,27 @@ function withPersonaId(
     const navigate = useNavigate();
     const parsed = Number(personaId);
     if (!Number.isInteger(parsed) || parsed <= 0) {
-      return <Navigate to="/personas" replace />;
+      // 주소가 잘못된 것이지 이용자가 뭘 고를 문제가 아니다. 홈(대시보드)으로
+      // 돌려보낸다 — 사례 선택으로 보내면 없앤 "가상 인물 고르기" 가 오류
+      // 경로로 되살아난다.
+      return <Navigate to={`/balance/${DEFAULT_PERSONA_ID}`} replace />;
     }
     return <AppLayout personaId={parsed}>{render(parsed, () => navigate('/personas'))}</AppLayout>;
   };
 }
 
-const BalanceRoute = withPersonaId((personaId, onNavigateToPersonas) => (
-  <BalanceDashboardPage
-    personaId={personaId}
-    onNavigateToPersonas={onNavigateToPersonas}
-  />
+const HomeRoute = withPersonaId((personaId, onNavigateToPersonas) => (
+  <HomePage personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
 ));
-const SimulateRoute = withPersonaId((personaId, onNavigateToPersonas) => (
-  <SimulationPage personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
-));
-const RouteResultRoute = withPersonaId((personaId, onNavigateToPersonas) => (
-  <RouteResultPage personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
-));
+
+// 탭을 없애면서 화면별 주소가 사라졌다. 이미 공유된 주소를 404 로 만들지 않고
+// 같은 페르소나의 홈으로 넘긴다.
+function LegacyRedirect() {
+  const { personaId } = useParams();
+  const parsed = Number(personaId);
+  const target = Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_PERSONA_ID;
+  return <Navigate to={`/balance/${target}`} replace />;
+}
 
 // 다음 사람은 이 배열 맨 끝에 한 줄만 추가한다. 같은 지점에 동시에 삽입하면
 // 병합 충돌이 나기 쉬우므로, 배열 중간에 끼워 넣지 않는다.
@@ -90,22 +160,24 @@ const RouteResultRoute = withPersonaId((personaId, onNavigateToPersonas) => (
 // 새 라우트는 element 를 <AppLayout> 으로 감싼다. personaId 종속 화면이면
 // <AppLayout personaId={...}> 로 넘겨 탭이 뜨게 한다.
 export const routes: RouteEntry[] = [
-  // <Routes>는 매칭이 없으면 null을 렌더링한다. 배포 루트(/)가 그 상태로
-  // 나가면 헤더만 뜨고 본문이 빈다 — 심사위원이 맨 처음 여는 주소다.
-  // replace를 써서 뒤로가기에서 / ↔ /personas 루프가 안 생기게 한다.
-  { path: '/', element: <Navigate to="/personas" replace /> },
+  // 배포 루트(/)는 심사위원이 맨 처음 여는 주소다. 여기서 진입 연출을 한 번
+  // 거치고 대시보드로 간다.
+  { path: '/', element: <IntroRoute /> },
   { path: '/personas', element: <PersonaSelectRoute /> },
   // 업로드는 페르소나와 무관한 별개 진입점이다(위 PersonaSelectRoute 주석
   // 참고) — personaId를 URL에 싣지 않는다.
   { path: '/upload', element: <TransactionUploadRoute /> },
 
-  { path: '/balance/:personaId', element: <BalanceRoute /> },
-  { path: '/simulate/:personaId', element: <SimulateRoute /> },
+  // 한 화면으로 합쳤다. 잔고·카드·질문·답이 전부 여기 있다.
+  { path: '/balance/:personaId', element: <HomeRoute /> },
+  // 옛 주소는 홈으로 보낸다 — 공유된 링크나 북마크가 깨지지 않게 한다.
+  { path: '/cards/:personaId', element: <LegacyRedirect /> },
+  { path: '/simulate/:personaId', element: <LegacyRedirect /> },
+  { path: '/route/:personaId', element: <LegacyRedirect /> },
 
-  { path: '/route/:personaId', element: <RouteResultRoute /> },
-
+  // 미매칭 경로도 사례 선택이 아니라 대시보드로 보낸다 — 위 '/' 와 같은 이유다.
   // 미매칭 경로 전부를 여기서 받는다(항상 배열 맨 끝에 둔다). SPA 폴백(#19)
   // 도입 이후로는 존재하지 않는 경로도 200으로 index.html을 받으므로,
   // 이 라우트가 없으면 /nope 같은 주소도 같은 빈 화면이 된다.
-  { path: '*', element: <Navigate to="/personas" replace /> },
+  { path: '*', element: <Navigate to={`/balance/${DEFAULT_PERSONA_ID}`} replace /> },
 ];

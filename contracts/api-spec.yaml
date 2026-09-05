@@ -64,6 +64,34 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/cards:
+    get:
+      summary: 보유 카드 현황
+      description: |
+        보유 카드별 이번 실적, 실적 구간별 혜택, 실적·할인 제외 항목.
+        실적은 결제 라우팅과 같은 엔진 함수로 계산한다 — 같은 값을 두 화면이
+        다르게 말하면 안 된다. 검수 완료(verified=true) 규칙만 담는다.
+      parameters:
+        - in: query
+          name: personaId
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/OwnedCard' }
+        '404':
+          description: 없는 페르소나 (PERSONA_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/balance:
     get:
       summary: 가용잔고 조회
@@ -100,7 +128,10 @@ paths:
           application/json:
             schema:
               type: object
-              required: [personaId, query]
+              required: [personaId]
+              description: |
+                query 와 purchase 중 하나는 반드시 있어야 한다.
+                둘 다 오면 purchase 가 이긴다.
               properties:
                 personaId: { type: integer }
                 query:
@@ -110,7 +141,17 @@ paths:
                   description: |
                     자연어 질의. 화면 입력란도 같은 길이로 제한한다 —
                     긴 문장은 LLM 런타임 예산을 넘기기 쉽고 비용도 는다.
+                    purchase 가 있으면 해석하지 않는다.
                   example: 아이폰 180만원 할부로 사도 될까
+                purchase:
+                  allOf: [{ $ref: '#/components/schemas/ParsedQuery' }]
+                  description: |
+                    구조화된 구매 정보. 결제 라우팅 결과에서 넘어올 때 쓴다 —
+                    금액·카테고리·결제 방식을 화면이 이미 정확히 알고 있으므로
+                    LLM 으로 다시 해석하지 않는다. 아는 값을 문장으로 만들어
+                    되읽히면 1.4초를 더 쓰고, 해석이 어긋나면 두 화면이 서로
+                    다른 숫자를 말하게 된다.
+                    응답의 parsed 와 같은 스키마다 — 넘긴 값이 그대로 돌아온다.
       responses:
         '200':
           description: 성공
@@ -222,6 +263,46 @@ components:
         message:
           type: string
           description: 사용자에게 보여줄 안내 문구. 예외 원문을 그대로 싣지 않는다
+
+    CardBenefit:
+      type: object
+      properties:
+        category:      { type: string, example: ONLINE }
+        categoryLabel: { type: string, example: 온라인쇼핑 }
+        perfMin:       { type: integer, example: 300000 }
+        perfMax:       { type: integer, nullable: true, description: null 이면 그 위로 계속 적용 }
+        discountRate:  { type: number, example: 0.1 }
+        categoryCap:   { type: integer, nullable: true }
+        active:        { type: boolean, description: 지금 실적이 이 구간에 있으면 true }
+
+    CardExclusion:
+      type: object
+      description: 실적·할인에서 빠지는 항목. 카드사 앱이 알려주지 않는 부분이다.
+      properties:
+        exclusionType: { type: string, enum: [PERFORMANCE, DISCOUNT, BOTH] }
+        targetKind:    { type: string, enum: [CATEGORY, MERCHANT, PAYMENT_TYPE] }
+        targetValue:   { type: string, example: INTEREST_FREE }
+        targetLabel:   { type: string, example: 무이자 할부 }
+
+    OwnedCard:
+      type: object
+      properties:
+        cardId:            { type: integer }
+        cardName:          { type: string }
+        issuer:            { type: string }
+        isDemo:            { type: boolean }
+        paymentDay:        { type: integer }
+        perfPeriodStart:   { type: string, format: date }
+        perfPeriodEnd:     { type: string, format: date }
+        perfCurrent:       { type: integer }
+        perfNextThreshold: { type: integer, nullable: true }
+        monthlyCap:        { type: integer, nullable: true }
+        benefits:
+          type: array
+          items: { $ref: '#/components/schemas/CardBenefit' }
+        exclusions:
+          type: array
+          items: { $ref: '#/components/schemas/CardExclusion' }
 
     SpendCategory:
       type: object
