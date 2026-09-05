@@ -2,3 +2,24 @@
    이 파일 외에 CSS 파일을 만들지 않는다. 스타일은 contracts/ui-system.md 의
    클래스 조합을 그대로 쓴다(.claude/skills/nokknok-frontend/SKILL.md). */
 @import 'tailwindcss';
+
+/* 로고 워드마크 전용 글꼴.
+
+   본문에는 쓰지 않는다 — "넉" 한 글자만 들어 있는 428바이트 서브셋이라
+   다른 글자는 시스템 폰트로 떨어진다. 전체 한글 글꼴은 서브셋이라도 수백
+   KB 라, 심사위원이 URL 만 받아 여는 경로에 얹을 무게가 아니다.
+
+   CDN 이 아니라 우리 오리진에서 직접 준다(public/fonts/README.md).
+
+   swap 이 아니라 block 을 쓴다. 428바이트는 사실상 즉시 도착하는데, swap 이면
+   그 찰나에 시스템 폰트로 그렸다가 바뀌면서 로고가 한 번 튄다. */
+@font-face {
+  font-family: 'NokknokWordmark';
+  src: url('/fonts/nokknok-wordmark.woff2') format('woff2');
+  font-weight: 700;
+  font-display: block;
+}
+
+@theme {
+  --font-wordmark: 'NokknokWordmark', system-ui, sans-serif;
+}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { animate, motion, useMotionValue, useTransform } from 'framer-motion';
 
 import { BankCard } from './BankCard';
+import { Logo } from './Logo';
 
 type Phase = 'ready' | 'reading' | 'success';
 
@@ -172,8 +173,8 @@ export function CardReaderIntro({ onComplete }: CardReaderIntroProps) {
     >
       {/* 심사위원이 맨 처음 보는 화면인데 카드 면의 로고 말고는 이 서비스가
           무엇인지 말하는 것이 없었다. 헤더에 쓰는 문장을 그대로 얹는다. */}
-      <div className="text-center">
-        <p className="text-2xl font-bold text-gray-900">넉넉</p>
+      <div className="flex flex-col items-center text-center">
+        <Logo />
         <p className="mt-1 text-sm text-gray-500">
           이미 나갈 돈을 뺀 진짜 쓸 수 있는 잔고와, 어느 카드로 결제할지 계산해 드립니다
         </p>

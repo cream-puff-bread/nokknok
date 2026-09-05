@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router';
 
 import { loadPersonasOnce } from '../api/personas';
 import type { Persona } from '../types/contract';
+import { Logo } from './Logo';
 
 interface AppLayoutProps {
   /**
@@ -78,9 +79,10 @@ export function AppLayout({ personaId, children }: AppLayoutProps) {
             <div className="flex items-center gap-2">
               <Link
                 to={home}
-                className="text-2xl font-bold text-gray-900 hover:text-blue-600 transition-colors"
+                aria-label="넉넉 홈"
+                className="text-gray-900 transition-colors hover:text-blue-600"
               >
-                넉넉
+                <Logo />
               </Link>
               {/* 가상 재무 데이터를 아무 표시 없이 실제 계좌처럼 보여주지 않는다.
                   카드에 "시연용" 뱃지를 붙이는 것과 같은 이유다
