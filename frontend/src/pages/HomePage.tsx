@@ -13,6 +13,7 @@ import { EmptyState } from '../components/EmptyState';
 import { CardsSection } from '../components/CardsSection';
 import { FixedExpenseCalendar } from '../components/FixedExpenseCalendar';
 import { PurchaseBar } from '../components/PurchaseBar';
+import { SpendingSection } from '../components/SpendingSection';
 import { ForecastToggle } from '../components/ForecastToggle';
 import { Modal } from '../components/Modal';
 import { Receipt } from '../components/Receipt';
@@ -308,6 +309,10 @@ export function HomePage({
         )}
       </div>
 
+      {/* 확정 지출 바로 아래에 둔다. 위쪽이 전부 "앞으로 얼마가 나가는가" 라
+          "그래서 그동안 뭘 썼길래" 가 바로 이어져야 읽힌다. 예측의 변동 지출이
+          이 거래에서 나오므로 근거를 보여주는 자리이기도 하다. */}
+      <SpendingSection personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
     </section>
   );
 }
