@@ -168,7 +168,16 @@ export function HomePage({
     );
   }
 
-  const { accountBalance, fixedTotal, availableBalance, fixedExpenses } = state.balance;
+  const {
+    accountBalance,
+    fixedTotal,
+    availableBalance,
+    fixedExpenses,
+    referenceDate,
+    incomeDay,
+    monthlyIncome,
+    monthOutlook,
+  } = state.balance;
 
   return (
     <section className="space-y-6">
@@ -280,7 +289,14 @@ export function HomePage({
         {fixedExpenses.length === 0 ? (
           <EmptyState message="등록된 확정 지출이 없습니다. 통장 잔액 전부를 쓸 수 있습니다." />
         ) : expenseView === 'calendar' ? (
-          <FixedExpenseCalendar fixedExpenses={fixedExpenses} personaId={personaId} />
+          <FixedExpenseCalendar
+            fixedExpenses={fixedExpenses}
+            personaId={personaId}
+            referenceDate={referenceDate}
+            incomeDay={incomeDay}
+            monthlyIncome={monthlyIncome}
+            monthOutlook={monthOutlook}
+          />
         ) : (
           // 항목이 여덟이라 그대로 두면 페이지가 계속 길어진다. 높이를
           // 고정하고 안에서 굴린다 — 화면 한 장에 담기는 게 이 배치의 목적이다.
