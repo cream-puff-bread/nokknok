@@ -400,6 +400,14 @@ components:
         expenseType:   { type: string, enum: [SUBSCRIPTION, INSTALLMENT, LOAN, INSURANCE] }
         unusedSuspect: { type: boolean, description: 미사용 의심 구독 }
 
+    DayBalance:
+      type: object
+      properties:
+        day:          { type: integer, description: 이 달의 날짜, example: 25 }
+        balance:      { type: integer, description: 그날 밤 기준 예상 잔고 }
+        income:       { type: integer, description: 그날 들어오는 돈. 급여일에만 0이 아니다 }
+        fixedOutflow: { type: integer, description: 그날 빠지는 확정 지출. 변동 지출은 빼고 센다 }
+
     BalanceResponse:
       type: object
       properties:
@@ -409,6 +417,22 @@ components:
         fixedExpenses:
           type: array
           items: { $ref: '#/components/schemas/FixedExpense' }
+        referenceDate:
+          type: string
+          format: date
+          example: 2026-08-20
+          description: >
+            계산 기준일. DEMO_TODAY 로 고정돼 있으면 그 날짜다.
+            화면이 브라우저 시계로 "오늘" 을 정하면 서버와 어긋난다.
+        incomeDay:     { type: integer, description: 매달 급여일, example: 25 }
+        monthlyIncome: { type: integer, description: 월 수입 }
+        monthOutlook:
+          type: array
+          description: >
+            기준일부터 이번 달 말까지 하루 단위 예상 잔고(보통 시나리오).
+            첫 항목은 기준일이며 잔고는 통장 잔액 그대로다.
+            마지막 항목은 SimulationResponse 의 첫 예측점과 같은 값이다.
+          items: { $ref: '#/components/schemas/DayBalance' }
 
     ParsedQuery:
       type: object
