@@ -13,6 +13,37 @@ uvicorn src.main:app --reload --port 8000
 
 API 문서: http://localhost:8000/docs
 
+## 테스트
+
+```bash
+pytest                                    # 330건
+pytest -m "not integration"               # 227건. DB 없이 도는 것만
+pytest tests/test_rag.py                  # 파일 하나
+pytest -k "실적 or Extractor"              # 이름으로 (한글 테스트명이 섞여 있다)
+```
+
+통합 테스트는 실제 DB에 붙는다. `DATABASE_URL` 이 없으면 `tests/integration/`
+전체가 자동으로 skip 되고 종료 코드는 0 이다 — **초록불이 곧 "통합까지 돌았다"
+는 뜻은 아니다.** CI 는 시크릿이 있는데도 skip 이 생기면 실패시켜 그 착각을
+막는다(`.github/workflows/ci.yml`).
+
+conftest 가 트랜잭션을 열고 무조건 롤백하므로 시드 데이터는 건드리지 않는다.
+
+## 엔드포인트
+
+| 메서드 | 경로 | 내용 |
+|---|---|---|
+| GET | `/api/health` | 헬스체크. DB를 보지 않는다(keep-alive 가 커넥션 한도를 잠식하지 않게) |
+| GET | `/api/personas` | 시연용 페르소나 목록 |
+| GET | `/api/balance` | 가용잔고, 확정 지출, 이번 달 하루 단위 잔고 전망 |
+| GET | `/api/cards` | 보유 카드 현황 (실적 누적액·적용 혜택·제외 항목) |
+| GET | `/api/categories` | `spend_category` 마스터. 화면이 코드를 지어내지 않게 |
+| GET | `/api/spending` | 카테고리별 소비 집계. `month` 생략 시 거래가 있는 마지막 달 |
+| POST | `/api/simulate` | 6개월 현금흐름. `query`(자연어) 또는 `purchase`(구조화) |
+| POST | `/api/route` | 결제 라우팅 최적화 |
+
+응답 형식은 `contracts/api-spec.yaml` 이 원본이다.
+
 ## 구조
 
 | 경로 | 담당 | 내용 |
@@ -165,8 +196,9 @@ LIMIT 1;
 
 ### 엔진 필수 단위 테스트
 
-구현 전에 아래 케이스를 먼저 작성한다. 계산 오류는 화면에 그럴듯한 숫자로
-표시되어 발견이 늦다.
+엔진을 고칠 때 아래 케이스가 계속 도는지 확인한다. 계산 오류는 화면에 그럴듯한
+숫자로 표시되어 발견이 늦다 — 이 표는 구현 전에 먼저 적어 둔 것이고, 지금은
+전부 테스트로 들어가 있다.
 
 | 케이스 | 기대값 |
 |---|---|

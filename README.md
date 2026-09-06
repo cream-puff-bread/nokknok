@@ -6,6 +6,8 @@
 
 2026 금융 AI Challenge 출품작 · Team BankWay
 
+**[nokknok.vercel.app](https://nokknok.vercel.app)**
+
 </div>
 
 ---
@@ -23,9 +25,12 @@
 | 기능 | 설명 |
 |---|---|
 | **가용잔고 산출** | 구독료·할부 원리금·고정비 등 확정 지출을 제외한 실제 사용 가능 금액을 계산 |
+| **확정 지출 조회** | 무엇이 언제 빠져나가는지 목록과 달력 두 가지로 표시 |
+| **보유 카드 현황** | 카드별 당월 실적 누적액, 실적 구간별 적용 혜택, 실적·할인 제외 항목 |
 | **6개월 시뮬레이션** | 자연어 질의를 받아 잔고 추이를 3개 시나리오로 제시하고 마이너스 전환 시점 표시 |
-| **결제 라우팅 최적화** | 실적 조건·혜택 한도·제외 항목·청구 마감일을 종합해 보유 카드 중 최적 카드와 결제 방식(일시불/무이자할부)을 산출 |
+| **결제 라우팅 최적화** | 실적 조건·혜택 한도·제외 항목·청구 마감일을 종합해 보유 카드 중 최적 카드와 결제 시점(오늘/마감일 다음날)·결제 방식(일시불/무이자할부)을 산출 |
 | **근거 제시** | 판정의 근거가 된 약관 조항 원문을 함께 표시 |
+| **소비 카테고리 분석** | 한 달간 무엇에 얼마를 썼는지 — 예측이 이 거래에서 나오므로 근거를 되짚는 자리 |
 
 ## 기술적 선택
 
@@ -67,7 +72,7 @@ LLM 호출이 실패해도 계산 결과 자체는 표시된다. 설명만 빠�
 
 **Backend** Python 3.11 · FastAPI · SQLAlchemy · Pydantic
 **Data/AI** PostgreSQL · Gemini API
-**Frontend** React · TypeScript · Tailwind CSS · Recharts
+**Frontend** React 19 · TypeScript · Vite · Tailwind CSS 4 · Recharts · react-router
 **Infra** Vercel · Render · Neon · GitHub Actions
 
 FastAPI를 선택한 이유는 다음과 같다.
@@ -93,7 +98,12 @@ nokknok/
 │   ├── repository/     DB 접근
 │   └── api/            엔드포인트
 ├── frontend/src/
+│   ├── api/            API 호출 계층
+│   ├── components/     화면 조각
+│   ├── pages/          화면
+│   └── routes.tsx      라우팅
 ├── data/               시드 데이터 (카드·약관·페르소나)
+├── docs/decisions/     ADR — 되짚기 전에 읽는다
 └── scripts/            데이터 생성·적재 배치
 ```
 
@@ -108,6 +118,11 @@ git clone https://github.com/cream-puff-bread/nokknok.git
 cd nokknok
 cp .env.example .env      # DATABASE_URL은 반드시 풀링(Pooled) 주소 사용
 ```
+
+`.env` 의 `DEMO_TODAY` 는 그대로 둔다. 계산의 기준일을 시연 데이터의 마지막
+거래일(**2026-08-20**)에 고정하는 값이다. 지우면 실제 오늘로 돌아가고, 시드
+잔액은 그 시점의 스냅샷이라 여는 날마다 다른 답이 나온다. 자세한 이유는
+[backend/README](./backend/README.md#계산의-기준일은-demo_today-를-따른다) 참조.
 
 ### 데이터베이스
 
@@ -125,10 +140,19 @@ cd backend
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+
+# 시드와 DB가 어긋나지 않았는지 확인한다. 시드를 고쳐 놓고 적재를 잊으면
+# 화면의 숫자가 조용히 옛 값으로 남는다.
+python ../scripts/verify_persona_seed_sync.py
+
 uvicorn src.main:app --reload --port 8000
 ```
 
 API 문서는 `http://localhost:8000/docs` 에서 확인한다.
+
+```bash
+pytest        # 330건. DATABASE_URL 이 없으면 통합 테스트는 건너뛰고 227건만 돈다
+```
 
 ### 프론트엔드
 
@@ -167,8 +191,8 @@ npm run dev
 프론트엔드는 각자 담당한 백엔드 기능의 화면을 직접 구현한다.
 
 - `@mango606` — 페르소나 선택 및 데이터 업로드
-- `@seohee-P` — 결제 라우팅 결과, 근거 약관 표시
-- `@fanfanduck` — 가용잔고 대시보드, 시뮬레이션 입력, 잔고 추이 차트
+- `@seohee-P` — 결제 라우팅 결과, 근거 약관 표시, 확정 지출 달력
+- `@fanfanduck` — 가용잔고 대시보드, 시뮬레이션 입력, 잔고 추이 차트, 소비 카테고리 분석
 
 규칙 검수는 별도 화면 대신 `scripts/review_rules.py`로 처리한다.
 
