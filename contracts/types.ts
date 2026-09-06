@@ -113,11 +113,35 @@ export interface FixedExpense {
   unusedSuspect: boolean;
 }
 
+export interface DayBalance {
+  /** 이 달의 날짜 */
+  day: number;
+  /** 그날 밤 기준 예상 잔고 */
+  balance: number;
+  /** 그날 들어오는 돈. 급여일에만 0이 아니다 */
+  income: number;
+  /** 그날 빠지는 확정 지출. 변동 지출은 빼고 센다 */
+  fixedOutflow: number;
+}
+
 export interface BalanceResponse {
   accountBalance: number;
   fixedTotal: number;
   availableBalance: number;
   fixedExpenses: FixedExpense[];
+  /**
+   * 계산 기준일 'YYYY-MM-DD'. DEMO_TODAY 로 고정돼 있으면 그 날짜다.
+   * 화면이 브라우저 시계로 "오늘" 을 정하면 서버와 어긋나므로 이 값을 쓴다.
+   */
+  referenceDate: string;
+  incomeDay: number;
+  monthlyIncome: number;
+  /**
+   * 기준일부터 이번 달 말까지 하루 단위 예상 잔고(보통 시나리오).
+   * 첫 항목은 기준일이며 잔고는 통장 잔액 그대로다.
+   * 마지막 항목은 SimulationResponse 의 첫 예측점과 같은 값이다.
+   */
+  monthOutlook: DayBalance[];
 }
 
 export interface ScenarioPoint {

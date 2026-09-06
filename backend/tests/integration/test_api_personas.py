@@ -72,11 +72,32 @@ def test_가용잔고는_통장잔액에서_확정지출을_뺀_값이다(client
         "fixedTotal",
         "availableBalance",
         "fixedExpenses",
+        "referenceDate",
+        "incomeDay",
+        "monthlyIncome",
+        "monthOutlook",
     }
     # 금액 계산은 서버가 전담한다. 프론트가 재계산하지 않아도 되도록
     # 세 값이 서로 맞아떨어져야 한다.
     assert body["availableBalance"] == body["accountBalance"] - body["fixedTotal"]
     assert body["fixedTotal"] == sum(e["amount"] for e in body["fixedExpenses"])
+
+
+def test_월별_잔고_전망이_기준일에서_시작해_달_끝까지_간다(client: TestClient):
+    body = client.get("/api/balance", params={"personaId": 1}).json()
+
+    reference_day = int(body["referenceDate"].split("-")[2])
+    outlook = body["monthOutlook"]
+
+    assert set(outlook[0]) == {"day", "balance", "income", "fixedOutflow"}
+    # 첫 항목은 기준일이고 잔고는 통장 잔액 그대로다 — 그날까지의 일은
+    # 이미 통장에 반영돼 있다.
+    assert outlook[0]["day"] == reference_day
+    assert outlook[0]["balance"] == body["accountBalance"]
+    # 날짜가 하나씩 늘며 그 달 마지막 날에서 끝난다.
+    assert [p["day"] for p in outlook] == list(
+        range(reference_day, reference_day + len(outlook))
+    )
 
 
 def test_확정지출_항목이_계약_형식을_따른다(client: TestClient):
