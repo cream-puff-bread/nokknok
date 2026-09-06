@@ -11,6 +11,7 @@ import {
 } from '../api/client';
 import { EmptyState } from '../components/EmptyState';
 import { CardsSection } from '../components/CardsSection';
+import { FixedExpenseCalendar } from '../components/FixedExpenseCalendar';
 import { PurchaseBar } from '../components/PurchaseBar';
 import { ForecastToggle } from '../components/ForecastToggle';
 import { Modal } from '../components/Modal';
@@ -76,6 +77,10 @@ export function HomePage({
   const [asking, setAsking] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
   const [purchaseSlow, setPurchaseSlow] = useState<SlowRequestPhase | null>(null);
+  // 확정 지출을 목록으로 볼지 달력으로 볼지. 기본은 목록 — 금액을 바로
+  // 읽는 쪽이 이 화면의 원래 목적에 가깝고, 달력은 "언제 몰려 있나" 를
+  // 따로 확인하고 싶을 때 고른다.
+  const [expenseView, setExpenseView] = useState<'list' | 'calendar'>('list');
   const categoryLabel = useCategoryLabels();
 
   const open = history.find((entry) => entry.id === openId) ?? null;
@@ -242,12 +247,40 @@ export function HomePage({
         <CardsSection personaId={personaId} onNavigateToPersonas={onNavigateToPersonas} />
       </div>
       <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-1">확정 지출</h3>
-        <p className="text-sm text-gray-500 mb-4">
-          이미 빠져나갈 금액과 날짜가 정해진 항목입니다.
-        </p>
+        <div className="mb-4 flex items-end justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-1">확정 지출</h3>
+            <p className="text-sm text-gray-500">
+              이미 빠져나갈 금액과 날짜가 정해진 항목입니다.
+            </p>
+          </div>
+          {/* 목록은 "무엇이 얼마" 를, 달력은 "언제 몰려 있는지" 를 보여준다.
+              한쪽이 다른 쪽을 대체하지 못해 둘 다 남기고 고르게 한다. */}
+          {fixedExpenses.length > 0 && (
+            <div role="radiogroup" aria-label="확정 지출 보기" className="flex shrink-0 rounded-full bg-gray-100 p-1">
+              {(['list', 'calendar'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={expenseView === mode}
+                  onClick={() => setExpenseView(mode)}
+                  className={`rounded-full px-4 py-1.5 text-sm transition-colors ${
+                    expenseView === mode
+                      ? 'bg-white font-medium text-gray-900 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-900'
+                  }`}
+                >
+                  {mode === 'list' ? '목록' : '달력'}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         {fixedExpenses.length === 0 ? (
           <EmptyState message="등록된 확정 지출이 없습니다. 통장 잔액 전부를 쓸 수 있습니다." />
+        ) : expenseView === 'calendar' ? (
+          <FixedExpenseCalendar fixedExpenses={fixedExpenses} personaId={personaId} />
         ) : (
           // 항목이 여덟이라 그대로 두면 페이지가 계속 길어진다. 높이를
           // 고정하고 안에서 굴린다 — 화면 한 장에 담기는 게 이 배치의 목적이다.
