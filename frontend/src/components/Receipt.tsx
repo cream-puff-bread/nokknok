@@ -3,9 +3,11 @@ import type { ReactNode } from 'react';
 import { ClauseList } from './ClauseList';
 import { Skeleton } from './Skeleton';
 import {
+  formatDate,
   formatWon,
   PAYMENT_TYPE_LABEL,
   type ParsedQuery,
+  type RouteCandidate,
   type RouteResponse,
 } from '../types/contract';
 
@@ -118,10 +120,48 @@ export function Receipt({
             </div>
           </div>
         )}
+
+        {/* LLM 설명. 생성 실패·타임아웃이면 null 이고, 그때는 이 줄만 빠진다 —
+            위 카드·할인액은 엔진이 계산한 값이라 그대로 남는다(CLAUDE.md 불변식). */}
+        {best?.explanation && (
+          <p className="mt-3 border-l-2 border-blue-200 pl-3 text-sm leading-relaxed text-gray-600">
+            {best.explanation}
+          </p>
+        )}
+
+        {/* 대안 카드. 엔진이 비교한 결과가 있는데 안 보여주면 "왜 이 카드인지" 가
+            근거 없이 통보처럼 읽힌다. 다만 결론을 밀어내지 않도록 접어 둔다. */}
+        {route && route.alternatives.length > 0 && (
+          <Disclosure summary={`다른 카드 ${route.alternatives.length}장과 비교`}>
+            <ul className="space-y-2">
+              {route.alternatives.map((candidate) => (
+                <AlternativeRow key={candidate.cardId} candidate={candidate} />
+              ))}
+            </ul>
+          </Disclosure>
+        )}
+
         {!routeLoading && !best && (
           <p className="text-sm text-gray-500">추천할 카드를 찾지 못했습니다.</p>
         )}
       </Section>
+
+      {/* 보유 카드로 조건을 못 채운 경우에만 온다. 계약 주석대로 최적화 결과와
+          시각적으로 분리하고 제휴 여부를 함께 밝힌다. */}
+      {route?.newCardSuggestion && (
+        <div className="border-b border-dashed border-gray-300 bg-amber-50 px-6 py-4">
+          <p className="text-xs font-medium text-amber-700">보유 카드로는 조건을 채우지 못했습니다</p>
+          <p className="mt-1 text-sm text-gray-900">
+            <span className="font-semibold">{route.newCardSuggestion.cardName}</span> 발급 시{' '}
+            <span className="font-semibold tabular-nums">
+              {formatWon(route.newCardSuggestion.expectedGain)}
+            </span>{' '}
+            더 받을 수 있습니다.
+            {route.newCardSuggestion.isDemo && <Tag>시연용</Tag>}
+            {route.newCardSuggestion.isAffiliate && <Tag>제휴</Tag>}
+          </p>
+        </div>
+      )}
 
       {forecast !== undefined && (
         <Section step={2} title="향후 6개월 잔고">
@@ -132,24 +172,20 @@ export function Receipt({
       {best && best.clauses.length > 0 && (
         // 영수증 하단 약관 자리에 진짜 약관 조항이 들어간다. 다만 본문의
         // 절반을 차지하면 결론이 묻히므로 접어 두고 원할 때 펴게 한다.
-        <details className="group border-b border-dashed border-gray-300 px-6 py-4">
-          <summary className="flex cursor-pointer list-none items-center gap-1 text-xs text-gray-500 hover:text-gray-900">
-            3. 적용된 카드 약관 보기
-            <svg
-              viewBox="0 0 24 24"
-              className="h-3 w-3 transition-transform group-open:rotate-180"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-            >
-              <path d="m6 9 6 6 6-6" />
-            </svg>
-          </summary>
-          <div className="mt-3">
+        <div className="border-b border-dashed border-gray-300 px-6 py-4">
+          <Disclosure summary="3. 적용된 카드 약관 보기" flush>
             <ClauseList clauses={best.clauses} />
-          </div>
-        </details>
+          </Disclosure>
+        </div>
+      )}
+
+      {/* 검수 안 된 규칙만 있는 카드를 후보에서 뺐다는 사실. 오류가 아니라
+          정상 응답이므로(계약 주석) 경고가 아닌 각주로만 남긴다. */}
+      {route && route.computeMeta.excludedUnverifiedCards > 0 && (
+        <p className="border-b border-dashed border-gray-300 px-6 py-3 text-xs text-gray-400">
+          검수가 끝나지 않은 카드 {route.computeMeta.excludedUnverifiedCards}장은 후보에서
+          제외했습니다.
+        </p>
       )}
 
       {/* 심사위원이 혼자 둘러보는 화면이다. 카드 뱃지만으로는 "이 계산이
@@ -158,6 +194,73 @@ export function Receipt({
         데모 시뮬레이션입니다 · 실제 결제는 이뤄지지 않습니다
       </footer>
     </article>
+  );
+}
+
+/** 결론을 밀어내지 않도록 접어 두는 보조 정보. 약관·대안 카드가 같은 모양을 쓴다. */
+function Disclosure({
+  summary,
+  children,
+  flush = false,
+}: {
+  summary: string;
+  children: ReactNode;
+  flush?: boolean;
+}) {
+  return (
+    <details className={`group ${flush ? '' : 'mt-3'}`}>
+      <summary className="flex cursor-pointer list-none items-center gap-1 text-xs text-gray-500 hover:text-gray-900">
+        {summary}
+        <svg
+          viewBox="0 0 24 24"
+          className="h-3 w-3 transition-transform group-open:rotate-180"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </summary>
+      <div className="mt-3">{children}</div>
+    </details>
+  );
+}
+
+/**
+ * 대안 카드 한 줄.
+ *
+ * best 와 같은 축(할인액·실적·결제일)만 보여준다 — 비교 대상이 서로 다른 값을
+ * 보이면 왜 이 카드가 밀렸는지 읽어내지 못한다.
+ */
+function AlternativeRow({ candidate }: { candidate: RouteCandidate }) {
+  return (
+    <li className="flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm text-gray-900">
+          {candidate.cardName}
+          {candidate.isDemo && <Tag>시연용</Tag>}
+        </p>
+        <p className="text-xs text-gray-500">
+          {formatDate(candidate.payDate)} · {PAYMENT_TYPE_LABEL[candidate.paymentType]}
+          {candidate.installmentMonths > 0 && ` ${candidate.installmentMonths}개월`}
+          <span className={`ml-1.5 ${candidate.perfAchieved ? 'text-emerald-600' : 'text-amber-600'}`}>
+            실적 {candidate.perfAchieved ? '충족' : '미충족'}
+          </span>
+        </p>
+      </div>
+      <span className="shrink-0 text-sm font-semibold tabular-nums text-gray-500">
+        −{formatWon(candidate.expectedDiscount)}
+      </span>
+    </li>
+  );
+}
+
+function Tag({ children }: { children: ReactNode }) {
+  return (
+    <span className="ml-1.5 inline-flex items-center rounded-md bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+      {children}
+    </span>
   );
 }
 
