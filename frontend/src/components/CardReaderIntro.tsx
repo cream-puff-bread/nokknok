@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { animate, motion, useMotionValue, useTransform } from 'framer-motion';
+import { animate, motion, useMotionValue, useReducedMotion, useTransform } from 'framer-motion';
 
 import { BankCard } from './BankCard';
 import { Logo } from './Logo';
@@ -126,6 +126,9 @@ export function CardReaderIntro({ onComplete }: CardReaderIntroProps) {
   const [locked, setLocked] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [skipShown, setSkipShown] = useState(false);
+  // 판단이 서기 전에는 null 이다. 그때 움직임을 미리 끄면 대다수가 연출을
+  // 못 보므로, 확정적으로 reduce 일 때만 끈다.
+  const reduceMotion = useReducedMotion() === true;
 
   // 여는 순간의 폭으로 한 번만 정한다. 연출이 도는 몇 초 사이에 창 크기를
   // 바꾸는 경우까지 따라가면 드래그 중에 카드가 튄다.
@@ -137,14 +140,28 @@ export function CardReaderIntro({ onComplete }: CardReaderIntroProps) {
 
   const x = useMotionValue(size.startX);
   // 기기에 닿기 전에 다 내려와 있어야 뒤로 들어가는 것처럼 보인다.
-  const y = useTransform(x, [size.startX, -40], [REST_Y, 0]);
+  //
+  // 움직임을 줄이는 설정에서는 끌리는 축(x) 말고 따라 움직이는 축을 멈춘다 —
+  // 손가락을 따라오는 것 자체가 아니라 곁들여 흔들리는 쪽이 어지럼을 만든다.
+  // 다만 0 으로 눕히지는 않는다. 그러면 쉴 때부터 카드가 기기에 반쯤 가려
+  // 무엇을 끌어야 하는지 안 보이는데(REST_Y 주석), 그건 움직임을 줄이려다
+  // 화면을 못 읽게 만드는 맞바꿈이다. 띄운 채로 고정해 세로로만 안 움직인다.
+  const y = useTransform(x, [size.startX, -40], reduceMotion ? [REST_Y, REST_Y] : [REST_Y, 0]);
   // 손으로 긋는 카드는 수평을 유지하지 않는다. 각도를 조금 주면 뻣뻣함이 준다.
-  const rotate = useTransform(x, [size.startX, size.throughX], [-3, 5]);
+  const rotate = useTransform(x, [size.startX, size.throughX], reduceMotion ? [0, 0] : [-3, 5]);
 
   useEffect(() => {
     const timer = setTimeout(() => setSkipShown(true), SKIP_REVEAL_MS);
     return () => clearTimeout(timer);
   }, []);
+
+  // 움직임을 줄이는 설정이면 기다리게 하지 않는다. 드래그로만 들어갈 수 있는
+  // 화면에서 입구를 3초 숨겨 두는 건, 그 드래그를 쓰기 어려운 쪽에게 화면이
+  // 멈춘 것처럼 보이는 시간을 그대로 떠넘기는 것이다.
+  //
+  // state 로 굳히지 않고 매번 계산한다 — useReducedMotion 은 판단 전에 null
+  // 을 주므로, 첫 값으로 한 번 켜 두면 나중에 아니라고 밝혀져도 되돌릴 수 없다.
+  const entryShown = skipShown || reduceMotion;
 
   const handleDrag = () => {
     if (locked) return;
@@ -156,19 +173,31 @@ export function CardReaderIntro({ onComplete }: CardReaderIntroProps) {
     if (x.get() >= size.successAt) {
       setLocked(true);
       setPhase('success');
-      animate(x, size.throughX, { type: 'spring', stiffness: 260, damping: 26 });
+      // 튕기는 스프링은 움직임을 줄이는 설정에서 가장 먼저 빼야 하는 종류다.
+      animate(
+        x,
+        size.throughX,
+        reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 260, damping: 26 },
+      );
+      // SUCCESS 를 읽을 시간은 남긴다. 없애면 눌렀는데 화면만 바뀐 것이 된다.
       setTimeout(() => setExiting(true), SUCCESS_HOLD_MS);
-      setTimeout(onComplete, SUCCESS_HOLD_MS + EXIT_MS);
+      setTimeout(onComplete, SUCCESS_HOLD_MS + (reduceMotion ? 0 : EXIT_MS));
       return;
     }
     setPhase('ready');
-    animate(x, size.startX, { type: 'spring', stiffness: 320, damping: 30 });
+    animate(
+      x,
+      size.startX,
+      reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 320, damping: 30 },
+    );
   };
 
   return (
     <motion.div
-      animate={{ opacity: exiting ? 0 : 1, y: exiting ? -32 : 0 }}
-      transition={{ duration: EXIT_MS / 1000, ease: 'easeIn' }}
+      // 퇴장은 위로 밀며 사라진다. 움직임을 줄이는 설정에서는 밀지 않고
+      // 바로 넘긴다 — 화면 전체가 움직이는 건 가장 크게 느껴지는 종류다.
+      animate={{ opacity: exiting ? 0 : 1, y: exiting && !reduceMotion ? -32 : 0 }}
+      transition={{ duration: reduceMotion ? 0 : EXIT_MS / 1000, ease: 'easeIn' }}
       className="relative flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4"
     >
       {/* 심사위원이 맨 처음 보는 화면인데 카드 면의 로고 말고는 이 서비스가
@@ -212,16 +241,22 @@ export function CardReaderIntro({ onComplete }: CardReaderIntroProps) {
         <ReaderShell phase={phase} layer="front" />
       </div>
 
-      <p className="mt-8 h-5 text-center text-sm text-gray-500">{PHASE_CAPTION[phase]}</p>
+      <p className="mt-8 h-5 text-center text-sm text-gray-500">
+        {reduceMotion && phase === 'ready' ? '카드를 긁거나, 아래 버튼으로 들어가세요' : PHASE_CAPTION[phase]}
+      </p>
 
+      {/* 움직임을 줄이는 설정에서는 이 버튼이 곁다리가 아니라 주된 입구다.
+          연한 글씨로 두면 "있는 줄도 몰랐다" 가 되므로 색을 준다. */}
       <button
         type="button"
         onClick={onComplete}
-        className={`absolute bottom-8 rounded-full border border-gray-200 bg-white px-4 py-2 text-xs text-gray-500 transition-opacity hover:text-gray-900 ${
-          skipShown ? 'opacity-100' : 'pointer-events-none opacity-0'
-        }`}
+        className={`absolute bottom-8 rounded-full px-4 py-2 text-xs transition-opacity ${
+          reduceMotion
+            ? 'bg-blue-600 text-white hover:bg-blue-700'
+            : 'border border-gray-200 bg-white text-gray-500 hover:text-gray-900'
+        } ${entryShown ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
       >
-        건너뛰고 바로 보기
+        {reduceMotion ? '바로 시작하기' : '건너뛰고 바로 보기'}
       </button>
     </motion.div>
   );
