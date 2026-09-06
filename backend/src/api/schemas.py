@@ -30,6 +30,21 @@ class SpendCategoryResponse(CamelModel):
     label: str
 
 
+class SpendingCategoryResponse(CamelModel):
+    category: str
+    category_label: str
+    amount: int
+    count: int
+
+
+class SpendingSummaryResponse(CamelModel):
+    month: str
+    month_end: date | None
+    total: int
+    count: int
+    categories: list[SpendingCategoryResponse]
+
+
 class CardBenefitResponse(CamelModel):
     category: str
     category_label: str

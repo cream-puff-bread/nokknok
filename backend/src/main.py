@@ -20,6 +20,7 @@ from src.api.health import router as health_router
 from src.api.personas import router as personas_router
 from src.api.route import router as route_router
 from src.api.simulate import router as simulate_router
+from src.api.spending import router as spending_router
 from src.common.clock import reference_date
 from src.common.config import Settings, get_settings, loaded_env_files
 from src.common.db import dispose_engine
@@ -125,6 +126,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(personas_router)
     app.include_router(route_router)
     app.include_router(simulate_router)
+    app.include_router(spending_router)
     register_error_handlers(app)
     return app
 
