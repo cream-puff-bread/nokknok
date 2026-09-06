@@ -30,8 +30,6 @@ interface ForecastChartProps {
   deadPoint: DeadPoint | null;
   /** 비교용으로 옅게 겹쳐 그릴 다른 방식. 없으면 안 그린다. */
   alternative?: { label: string; scenarios: Scenario[] } | null;
-  /** 오늘의 가용잔고. 있으면 첫 점 앞에 '지금' 으로 붙인다. */
-  startBalance?: number;
 }
 
 interface Row {
@@ -57,14 +55,19 @@ interface Row {
  * 기준선은 0원이다. 시안의 "안전잔고 50만" 은 좋은 개념이지만 우리 데이터에
  * 없는 값이라 그으면 근거 없는 선이 된다. 적자 판정도 0원 기준이므로
  * (forecast/projection.py의 _find_dead_point) 선과 위기 표시가 어긋나지 않는다.
+ *
+ * 선에는 예측 점만 올린다. 예전에는 앞에 오늘의 가용잔고를 '지금' 으로 붙였는데,
+ * 그 값과 예측은 서로 다른 것을 잰다 — 가용잔고는 이번 달 확정지출을 이미 나간
+ * 것까지 전부 뺀 값이고, 첫 예측점은 아직 안 나간 것만 뺀 월말 잔고다. 같은
+ * 선 위에서 아직 안 나간 돈이 두 번 빠져 선이 실제보다 평평해 보였다.
+ * "지금 이만큼" 은 차트 아래 문장으로 옮겼다(ForecastToggle 의 FeedbackBanner).
  */
 export function ForecastChart({
   scenarios,
   deadPoint,
   alternative,
-  startBalance,
 }: ForecastChartProps) {
-  const rows = toRows(scenarios, alternative?.scenarios, startBalance);
+  const rows = toRows(scenarios, alternative?.scenarios);
 
   // 굵은 선은 보통 시나리오가 0원 아래로 갈 때만 경고색이 된다.
   //
@@ -85,7 +88,7 @@ export function ForecastChart({
   // 없는 게 맞다 — 그 화면의 적자는 빠듯 시나리오에만 있고 안내 상자도
   // 경고가 아니라 주의로 뜬다. 얇은 선에 "위기" 를 찍으면 중앙 추정이
   // 위험한 것처럼 읽힌다.
-  const crisis = crisisPoint(scenarios);
+  const crisis = crisisPoint(scenarios, rows);
 
   return (
     <div className="rounded-2xl bg-gray-50 p-4">
@@ -206,8 +209,8 @@ export function ForecastChart({
       </ResponsiveContainer>
 
       <p className="mt-2 text-center text-[11px] text-gray-400">
-        굵은 선은 {SCENARIO_LABEL.NORMAL}, 아래 얇은 선은 {SCENARIO_LABEL.TIGHT}{' '}
-        시나리오입니다
+        각 점은 그 달 말 잔고입니다 · 굵은 선은 {SCENARIO_LABEL.NORMAL}, 아래 얇은
+        선은 {SCENARIO_LABEL.TIGHT} 시나리오
         {alternative && ` · 점선은 ${alternative.label}`}
         {crisis !== null && ' · 위기는 보통 시나리오의 첫 적자 달'}
       </p>
@@ -265,14 +268,41 @@ function CrisisLabel({
  * 적자 기준은 백엔드와 같은 0원이다(forecast/projection.py 의
  * _find_dead_point). 판정을 새로 만드는 게 아니라 받은 값에서 그 시나리오의
  * 첫 적자 달을 고르는 것뿐이므로, 기준이 갈라지지 않는다.
+ *
+ * 라벨은 만들지 않고 rows 에서 꺼낸다. ReferenceDot 의 x 는 행의 label 과
+ * 문자열이 정확히 같아야 그려지는데, recharts 는 안 맞아도 오류를 내지 않고
+ * 점을 그냥 안 그린다. 여기서 라벨을 따로 조립하면 표기 규칙이 바뀌는 날
+ * 위기 표시가 조용히 사라진다 — 이 화면에서 가장 보여줘야 할 표시다.
  */
 function crisisPoint(
   scenarios: Scenario[],
+  rows: Row[],
 ): { label: string; balance: number } | null {
   const points = scenarios.find((s) => s.level === 'NORMAL')?.points ?? [];
   const index = points.findIndex((p) => p.balance < 0);
-  if (index < 0) return null;
-  return { label: `${index + 1}개월`, balance: points[index].balance };
+  if (index < 0 || rows[index] === undefined) return null;
+  return { label: rows[index].label, balance: points[index].balance };
+}
+
+/**
+ * 'YYYY-MM' → '8월'. 기준 달과 해가 다르면 연도를 붙인다("27년 1월").
+ *
+ * 예전에는 배열 인덱스로 '1개월', '2개월' 을 만들었다. 그 표기가 맞으려면
+ * 첫 점이 한 달 뒤여야 하는데 첫 예측점은 이번 달 말이고, month 0 에만 남은
+ * 날짜 비율이 곱해진다(projection.py 의 _remaining_month_ratio). 기준일이
+ * 늘 오늘이던 시절에는 월초에 보면 얼추 맞았지만, DEMO_TODAY 로 월 중간에
+ * 못박은 뒤로는 그 구간이 항상 한 달보다 짧다 — 2026-08-20 기준이면 첫 점이
+ * 11일 뒤인데 '1개월' 이라 적혔다.
+ *
+ * 달 이름만 쓰고 "말" 은 축에 붙이지 않는다. 6칸에 라벨이 길면 좁은 폭에서
+ * 겹친다. 각 점이 그 달 말이라는 것은 차트 아래 한 줄이 말한다.
+ */
+export function monthLabel(month: string, baseMonth: string): string {
+  const [year, index] = month.split('-');
+  const name = `${Number(index)}월`;
+  // 6개월 창은 해를 넘어간다(8월 기준이면 마지막이 2027-01). 연도를 안 붙이면
+  // 그 라벨만 올해 1월로 읽힌다.
+  return year === baseMonth.slice(0, 4) ? name : `${year.slice(2)}년 ${name}`;
 }
 
 /** 그 시나리오가 6개월 안에 한 번이라도 0원 아래로 내려가는지. */
@@ -285,11 +315,7 @@ function dipsBelowZero(scenarios: Scenario[], level: string): boolean {
  * 시나리오별로 나뉘어 온 응답을 한 줄로 모은다.
  * 값을 만들거나 고치지 않는다 — 백엔드가 준 balance 를 그대로 옮긴다.
  */
-function toRows(
-  scenarios: Scenario[],
-  altScenarios?: Scenario[],
-  startBalance?: number,
-): Row[] {
+function toRows(scenarios: Scenario[], altScenarios?: Scenario[]): Row[] {
   const pick = (list: Scenario[] | undefined, level: string) =>
     list?.find((s) => s.level === level)?.points ?? [];
 
@@ -298,9 +324,10 @@ function toRows(
   const low = pick(scenarios, 'TIGHT');
   const alt = pick(altScenarios, 'NORMAL');
 
-  const rows: Row[] = mid.map((point, i) => ({
-    // 절대 월(9월, 10월…)보다 상대 표기가 "지금부터 몇 달 뒤" 를 바로 읽힌다.
-    label: `${i + 1}개월`,
+  const base = mid[0]?.month ?? '';
+
+  return mid.map((point, i) => ({
+    label: monthLabel(point.month, base),
     mid: point.balance,
     low: low[i]?.balance,
     band:
@@ -309,16 +336,4 @@ function toRows(
         : undefined,
     alt: alt[i]?.balance,
   }));
-
-  // 오늘 잔고를 앞에 붙이면 "지금 이만큼인데 이렇게 된다" 가 한 줄로 읽힌다.
-  if (startBalance !== undefined) {
-    rows.unshift({
-      label: '지금',
-      mid: startBalance,
-      low: startBalance,
-      band: [startBalance, startBalance],
-      alt: alt.length > 0 ? startBalance : undefined,
-    });
-  }
-  return rows;
 }
