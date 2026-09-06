@@ -76,6 +76,7 @@ psql $DATABASE_URL -f contracts/schema.sql
 psql $DATABASE_URL -f data/cards.seed.sql
 psql $DATABASE_URL -f data/clauses.seed.sql
 psql $DATABASE_URL -f data/personas.seed.sql
+python scripts/verify_persona_seed_sync.py    # seed 파일과 DB의 persona/fixed_expense 정합성 확인
 ```
 
 ### Backend
