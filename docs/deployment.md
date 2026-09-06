@@ -128,6 +128,33 @@ curl -s -o /dev/null -w "%{http_code}
 5번은 라우팅을 도입한 뒤부터 의미가 생긴다. 여기서 404 가 나오면 새로고침과
 딥링크가 전부 깨지므로, 라우터를 넣기 전에 먼저 확인해야 한다.
 
+### 기준일이 고정됐는가
+
+위가 전부 통과해도 이게 빠지면 화면이 여는 날마다 다른 답을 말한다. 심사는
+URL 만 받아 아무 날에나 열어 보는 방식이라, 같은 화면이 "안전" 도 되고
+"260만원 부족" 도 되면 안 된다(`backend/src/common/clock.py` 참조).
+
+먼저 Render 기동 로그를 본다. 배포 로그의 맨 **위**에 있다 — 아래는 종료
+로그라 여기서는 안 보인다.
+
+```
+API 서버 기동 environment=production db_pool_max=5 기준일=2026-08-20(고정)
+```
+
+`(실제 오늘)` 이면 `DEMO_TODAY` 가 안 들어간 것이다. `render.yaml` 에 값이
+있으므로 Blueprint 로 배포했다면 자동으로 붙는다. 대시보드에서 만든
+서비스라면 환경변수를 직접 넣고 재배포한다.
+
+그다음 계산이 실제로 그 날짜를 타는지 확인한다. 로그는 설정을 읽었다는
+말일 뿐이고, 그 값이 계산까지 흘러갔는지는 별개다.
+
+```bash
+curl -s -X POST https://<render>.onrender.com/api/simulate   -H 'Content-Type: application/json'   -d '{"personaId":2,"purchase":{"amount":2000000,"paymentType":"LUMP","installmentMonths":0,"category":"ONLINE"}}'   | jq '.deadPoint'
+# → {"month": "2026-08", "level": "TIGHT", "shortage": 1775229}
+```
+
+`month` 가 `2026-09` 이후로 나오면 실제 오늘을 쓰고 있는 것이다.
+
 ## 콜드스타트
 
 `CONTRIBUTING.md` 의 시연 안정성 항목대로, **시연 전에 10분 이상 방치했다가 접속해 본다.** keep-alive 가 돌고 있어도 워크플로가 밀리거나 GitHub Actions 가 지연되면 슬립에 들어간다.
