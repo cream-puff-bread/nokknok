@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from src.api.deps import get_db_session, get_explanation_client
 from src.api.errors import ErrorCode
+from src.common.clock import reference_date
 from src.common.exceptions import LlmBudgetExceededError
 from src.main import create_app
 
@@ -137,7 +138,11 @@ class TestRouteHappyPath:
         # dueDate를 오늘로 좁히면 "미룬 후보" 자체가 만들어지지 않아
         # 카드당 결제방식 개수만큼만 시도된다 — 기본 30일 창과 대비되는
         # 경계 동작을 확인한다.
-        today = date.today().isoformat()
+        #
+        # 서버와 같은 시계를 쓴다. date.today() 를 쓰면 DEMO_TODAY 가 설정된
+        # 환경에서 "오늘" 이 서버보다 미래가 되어, 좁힌 게 아니라 오히려 창이
+        # 열린 채로 검사하게 된다.
+        today = reference_date().isoformat()
         body = _route(client, personaId=2, dueDate=today).json()
 
         assert body["computeMeta"]["candidatesTotal"] == 4
