@@ -371,10 +371,24 @@ components:
         monthEnd 를 함께 내려보내는 이유는 마지막 달이 미완결일 수 있어서다.
         20일까지만 거래가 있는 달을 완결된 달처럼 보여주면 합계가 왜 적은지
         화면에서 설명할 수 없다.
+
+        거래가 하나도 없는 달을 명시적으로 요청하면 total 0, count 0,
+        categories [], monthEnd null 로 답한다. 빈 달은 오류가 아니라 사실이다.
       properties:
         month:    { type: string,  example: 2026-08, description: 'YYYY-MM' }
-        monthEnd: { type: string,  format: date, example: 2026-08-20,
-                    description: 그 달의 마지막 거래일. 미완결 월이면 말일보다 이르다 }
+        monthEnd:
+          type: string
+          format: date
+          nullable: true
+          example: 2026-08-20
+          description: |
+            그 달의 마지막 거래일. 미완결 월이면 말일보다 이르다.
+
+            거래가 없는 달이면 null 이다. 이 필드의 뜻이 "마지막 거래일" 이라
+            거래가 없으면 해당하는 날짜가 존재하지 않는다. 다른 값으로 메우면
+            전부 사실과 어긋난다 — 전체 이력의 마지막 거래일을 넣으면 month 와
+            다른 달을 가리키게 되고, 월초·말일은 "마지막 거래일" 이라는 정의
+            자체와 맞지 않는다.
         total:    { type: integer, example: 1018690 }
         count:    { type: integer, example: 38 }
         categories:

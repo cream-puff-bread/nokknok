@@ -79,15 +79,20 @@ export interface SpendingSummary {
   /** 'YYYY-MM' */
   month: string;
   /**
-   * 그 달의 마지막 거래일('YYYY-MM-DD').
+   * 그 달의 마지막 거래일('YYYY-MM-DD'). 거래가 없는 달이면 null.
    *
    * 미완결 월이면 말일보다 이르다. 20일까지만 거래가 있는 달을 완결된 달처럼
    * 보여주면 합계가 왜 적은지 화면에서 설명할 수 없으므로 함께 표기한다.
+   *
+   * null 인 이유는 이 필드의 뜻이 "마지막 거래일" 이기 때문이다 — 거래가
+   * 없으면 해당하는 날짜가 존재하지 않는다. 다른 값으로 메우면 전부 사실과
+   * 어긋난다. 화면에서는 이 값이 null 이면 기간 표기를 생략하고 빈 상태를
+   * 그린다.
    */
-  monthEnd: string;
+  monthEnd: string | null;
   total: number;
   count: number;
-  /** 금액 내림차순. */
+  /** 금액 내림차순. 거래가 없는 달이면 빈 배열이다 — 오류가 아니라 사실이다. */
   categories: SpendingCategory[];
 }
 
