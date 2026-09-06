@@ -39,7 +39,7 @@ class SpendingCategoryResponse(CamelModel):
 
 class SpendingSummaryResponse(CamelModel):
     month: str
-    month_end: date
+    month_end: date | None
     total: int
     count: int
     categories: list[SpendingCategoryResponse]

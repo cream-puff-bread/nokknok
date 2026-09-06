@@ -102,6 +102,7 @@ def test_거래_없는_달은_빈_배열과_0을_200으로_돌려준다(client: 
     assert body["categories"] == []
     assert body["total"] == 0
     assert body["count"] == 0
+    assert body["monthEnd"] is None
 
 
 def test_완결된_달의_monthEnd는_말일이다(client: TestClient):

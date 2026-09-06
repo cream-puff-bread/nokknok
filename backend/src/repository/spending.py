@@ -78,7 +78,7 @@ class SpendingCategory:
 @dataclass(frozen=True, slots=True)
 class SpendingSummary:
     month: str
-    month_end: date
+    month_end: date | None
     total: int
     count: int
     categories: tuple[SpendingCategory, ...]
@@ -122,12 +122,8 @@ def get_spending_summary(
     ).all()
 
     if not rows:
-        # TODO(#계약변경): 거래 0건인 달의 month_end 는 null 이 맞다. 그런데
-        # contracts/api-spec.yaml 의 SpendingSummary.monthEnd 가 nullable: true
-        # 로 선언돼 있지 않아(다른 nullable 필드는 전부 명시돼 있다) 지금은
-        # 월초로 대체한다. 계약에 nullable 표시가 추가되면 None 으로 정정한다.
         return SpendingSummary(
-            month=month_label, month_end=range_start, total=0, count=0, categories=()
+            month=month_label, month_end=None, total=0, count=0, categories=()
         )
 
     categories = tuple(
