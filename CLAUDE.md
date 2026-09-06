@@ -76,7 +76,6 @@ psql $DATABASE_URL -f contracts/schema.sql
 psql $DATABASE_URL -f data/cards.seed.sql
 psql $DATABASE_URL -f data/clauses.seed.sql
 psql $DATABASE_URL -f data/personas.seed.sql
-python scripts/verify_persona_seed_sync.py    # seed 파일과 DB의 persona/fixed_expense 정합성 확인
 ```
 
 ### Backend
@@ -84,6 +83,7 @@ python scripts/verify_persona_seed_sync.py    # seed 파일과 DB의 persona/fix
 cd backend
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+python ../scripts/verify_persona_seed_sync.py       # seed 파일과 DB가 어긋나지 않는지 확인
 uvicorn src.main:app --reload --port 8000            # API docs at :8000/docs
 ```
 
