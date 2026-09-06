@@ -15,7 +15,15 @@ from src.common.config import Settings
 
 
 def _settings(**kwargs: object) -> Settings:
-    return Settings(DATABASE_URL="postgresql://u:p@localhost/db", **kwargs)  # type: ignore[arg-type]
+    """테스트용 설정.
+
+    _env_file=None 으로 .env 를 읽지 않게 한다. 그러지 않으면 개발자가 .env 에
+    DEMO_TODAY 를 넣어 둔 순간 "설정이 없으면 실제 오늘" 테스트가 깨진다 —
+    추적하지 않는 로컬 파일에 테스트 결과가 매달리게 된다.
+    """
+    return Settings(  # type: ignore[arg-type]
+        _env_file=None, DATABASE_URL="postgresql://u:p@localhost/db", **kwargs
+    )
 
 
 @pytest.fixture(autouse=True)
