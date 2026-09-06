@@ -41,7 +41,7 @@ interface ForecastToggleProps {
   purchase: ParsedQuery;
   /** 물어본 방식으로 이미 계산해 둔 결과. 다시 부르지 않는다. */
   asked: SimulationResponse;
-  /** 오늘의 가용잔고. 차트 첫 점('지금')으로 쓴다. */
+  /** 오늘의 가용잔고. 차트 아래 한 줄로 적는다. */
   availableBalance?: number;
 }
 
@@ -152,7 +152,6 @@ export function ForecastToggle({
                 ? { label: other.label, scenarios: otherForecast.scenarios }
                 : null
             }
-            startBalance={availableBalance}
           />
 
           <FeedbackBanner
@@ -161,6 +160,7 @@ export function ForecastToggle({
             shown={shown}
             other={other}
             otherForecast={otherForecast}
+            availableBalance={availableBalance}
           />
         </>
       )}
@@ -180,6 +180,11 @@ export function ForecastToggle({
  * 그래프만으로는 "그래서 어떻게 하라는 건지" 가 안 나온다. 위험하면 무엇을
  * 바꾸면 되는지까지 말해야 다음 행동을 정할 수 있다 — 특히 옆에서 설명해 줄
  * 사람이 없는 화면에서는.
+ *
+ * 가용잔고는 여기 첫 문장으로만 적고 예측과 화살표로 잇지 않는다. 둘은 서로
+ * 다른 것을 재는 값이라(가용잔고는 이번 달 확정지출 전액을 뺀 오늘, 예측은
+ * 아직 안 나간 것만 뺀 월말), "지금 X → N개월 뒤 Y" 로 쓰면 차트에서 뺀 그
+ * 잘못된 연결을 글자로 다시 만드는 셈이 된다.
  */
 function FeedbackBanner({
   purchase,
@@ -187,13 +192,20 @@ function FeedbackBanner({
   shown,
   other,
   otherForecast,
+  availableBalance,
 }: {
   purchase: ParsedQuery;
   active: Variant;
   shown: SimulationResponse;
   other: Variant | null;
   otherForecast: SimulationResponse | null;
+  availableBalance?: number;
 }) {
+  const nowLine =
+    availableBalance === undefined
+      ? ''
+      : `지금 바로 쓸 수 있는 돈은 ${formatWon(availableBalance)}입니다. `;
+
   if (shown.deadPoint === null) {
     const monthly =
       active.installmentMonths > 0
@@ -205,6 +217,7 @@ function FeedbackBanner({
           🛡️ {active.label}이면 6개월 내내 안전
         </p>
         <p className="mt-1 text-xs text-emerald-900/80">
+          {nowLine}
           {monthly === null
             ? '6개월 동안 잔고가 0원 아래로 내려가지 않습니다.'
             : `월 ${formatWon(monthly)}씩 나눠 내면 잔고가 0원 위를 유지합니다. 무이자라 이자 부담은 없습니다.`}
@@ -238,6 +251,7 @@ function FeedbackBanner({
         잔고 {severe ? '부족' : '주의'}
       </p>
       <p className={`mt-1 text-xs ${tone.body}`}>
+        {nowLine}
         {/* 남는 쪽은 "줄어든다" 고 쓰지 않는다. 6개월 할부처럼 가장 낮은
             달의 잔고가 오늘보다 오히려 많은 경우가 있어서, 방향을 단정하면
             그 화면에서 거짓말이 된다. 가장 낮은 지점만 사실대로 짚는다. */}

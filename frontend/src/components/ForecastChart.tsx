@@ -30,8 +30,6 @@ interface ForecastChartProps {
   deadPoint: DeadPoint | null;
   /** 비교용으로 옅게 겹쳐 그릴 다른 방식. 없으면 안 그린다. */
   alternative?: { label: string; scenarios: Scenario[] } | null;
-  /** 오늘의 가용잔고. 있으면 첫 점 앞에 '지금' 으로 붙인다. */
-  startBalance?: number;
 }
 
 interface Row {
@@ -57,14 +55,19 @@ interface Row {
  * 기준선은 0원이다. 시안의 "안전잔고 50만" 은 좋은 개념이지만 우리 데이터에
  * 없는 값이라 그으면 근거 없는 선이 된다. 적자 판정도 0원 기준이므로
  * (forecast/projection.py의 _find_dead_point) 선과 위기 표시가 어긋나지 않는다.
+ *
+ * 선에는 예측 점만 올린다. 예전에는 앞에 오늘의 가용잔고를 '지금' 으로 붙였는데,
+ * 그 값과 예측은 서로 다른 것을 잰다 — 가용잔고는 이번 달 확정지출을 이미 나간
+ * 것까지 전부 뺀 값이고, 첫 예측점은 아직 안 나간 것만 뺀 월말 잔고다. 같은
+ * 선 위에서 아직 안 나간 돈이 두 번 빠져 선이 실제보다 평평해 보였다.
+ * "지금 이만큼" 은 차트 아래 문장으로 옮겼다(ForecastToggle 의 FeedbackBanner).
  */
 export function ForecastChart({
   scenarios,
   deadPoint,
   alternative,
-  startBalance,
 }: ForecastChartProps) {
-  const rows = toRows(scenarios, alternative?.scenarios, startBalance);
+  const rows = toRows(scenarios, alternative?.scenarios);
 
   // 굵은 선은 보통 시나리오가 0원 아래로 갈 때만 경고색이 된다.
   //
@@ -285,11 +288,7 @@ function dipsBelowZero(scenarios: Scenario[], level: string): boolean {
  * 시나리오별로 나뉘어 온 응답을 한 줄로 모은다.
  * 값을 만들거나 고치지 않는다 — 백엔드가 준 balance 를 그대로 옮긴다.
  */
-function toRows(
-  scenarios: Scenario[],
-  altScenarios?: Scenario[],
-  startBalance?: number,
-): Row[] {
+function toRows(scenarios: Scenario[], altScenarios?: Scenario[]): Row[] {
   const pick = (list: Scenario[] | undefined, level: string) =>
     list?.find((s) => s.level === level)?.points ?? [];
 
@@ -298,7 +297,7 @@ function toRows(
   const low = pick(scenarios, 'TIGHT');
   const alt = pick(altScenarios, 'NORMAL');
 
-  const rows: Row[] = mid.map((point, i) => ({
+  return mid.map((point, i) => ({
     // 절대 월(9월, 10월…)보다 상대 표기가 "지금부터 몇 달 뒤" 를 바로 읽힌다.
     label: `${i + 1}개월`,
     mid: point.balance,
@@ -309,16 +308,4 @@ function toRows(
         : undefined,
     alt: alt[i]?.balance,
   }));
-
-  // 오늘 잔고를 앞에 붙이면 "지금 이만큼인데 이렇게 된다" 가 한 줄로 읽힌다.
-  if (startBalance !== undefined) {
-    rows.unshift({
-      label: '지금',
-      mid: startBalance,
-      low: startBalance,
-      band: [startBalance, startBalance],
-      alt: alt.length > 0 ? startBalance : undefined,
-    });
-  }
-  return rows;
 }
