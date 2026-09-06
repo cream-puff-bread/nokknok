@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from src.api.deps import get_db_session
 from src.api.errors import ErrorCode
+from src.common.clock import reference_date
 from src.main import create_app
 
 pytestmark = pytest.mark.integration
@@ -56,17 +57,53 @@ def test_보유한_카드만_나온다(client: TestClient, db_session: Session):
     assert {c["cardId"] for c in _cards(client)} == owned
 
 
-def test_실적이_결제_라우팅과_같다(client: TestClient):
-    """두 화면이 같은 숫자를 말해야 한다 — 이 테스트가 이 파일의 핵심이다."""
+def test_오늘_결제하는_후보는_실적이_카드_화면과_같다(client: TestClient):
+    """두 화면이 같은 숫자를 말해야 한다 — 이 테스트가 이 파일의 핵심이다.
+
+    단, "같아야 한다" 는 결제일이 같을 때만 성립한다. 엔진이 결제일 조합을
+    탐색하게 된 뒤로(#33) RouteCandidate.perfCurrent 는 그 후보의 payDate 가
+    속한 실적 기간 값이고, GET /api/cards 는 오늘이 속한 기간 값이다.
+    payDate 를 구분하지 않고 전부 비교하면, 미룬 후보가 이기는 날에만
+    실패하는 테스트가 된다(DEMO_TODAY=2026-08-20 에서 실제로 그랬다).
+    """
     by_card = {c["cardId"]: c["perfCurrent"] for c in _cards(client)}
+    today = reference_date().isoformat()
+
+    route = client.post(
+        "/api/route", json={"personaId": 2, "amount": 100_000, "category": "ONLINE"}
+    ).json()
+
+    compared = 0
+    for candidate in [route["best"], *route["alternatives"]]:
+        if candidate["payDate"] != today:
+            continue
+        compared += 1
+        assert candidate["perfCurrent"] == by_card[candidate["cardId"]], (
+            f"카드 {candidate['cardId']} 의 실적이 두 화면에서 다르다"
+        )
+
+    assert compared > 0, "오늘 결제하는 후보가 하나도 없어 비교가 이뤄지지 않았다"
+
+
+def test_미룬_후보의_실적은_그_결제일_기간의_값이다(client: TestClient):
+    """미룬 후보가 카드 화면과 다른 것은 버그가 아니라 다른 기간이라서다.
+
+    다르다는 사실만 두면 "언젠가 조용히 같아져도" 아무도 모른다. 다를 때
+    그것이 payDate 를 미룬 후보에서만 일어나는지 여기서 못박는다.
+    """
+    by_card = {c["cardId"]: c["perfCurrent"] for c in _cards(client)}
+    today = reference_date().isoformat()
 
     route = client.post(
         "/api/route", json={"personaId": 2, "amount": 100_000, "category": "ONLINE"}
     ).json()
 
     for candidate in [route["best"], *route["alternatives"]]:
-        assert candidate["perfCurrent"] == by_card[candidate["cardId"]], (
-            f"카드 {candidate['cardId']} 의 실적이 두 화면에서 다르다"
+        if candidate["perfCurrent"] == by_card[candidate["cardId"]]:
+            continue
+        assert candidate["payDate"] > today, (
+            f"카드 {candidate['cardId']}: 결제일이 오늘({today})인데 실적이 "
+            f"카드 화면과 다르다 — 같은 기간을 두 곳에서 다르게 세고 있다"
         )
 
 
