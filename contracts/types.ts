@@ -56,6 +56,41 @@ export interface SpendCategory {
   label: string;
 }
 
+/** 한 달 동안 그 카테고리에 쓴 금액과 건수. */
+export interface SpendingCategory {
+  category: string;
+  categoryLabel: string;
+  amount: number;
+  count: number;
+}
+
+/**
+ * 한 달치 카테고리별 소비.
+ *
+ * 다른 화면이 전부 "앞으로 어떻게 될지" 만 말하므로 "그동안 뭘 썼는지" 를
+ * 되짚는 자리다. 예측이 이 거래에서 나오므로 예측의 근거이기도 하다.
+ *
+ * 거래가 없는 카테고리는 배열에 없다. 안 쓴 카테고리는 "무엇에 썼나" 의 답이
+ * 아니고, spend_category 는 마스터라 매달 전부를 0 으로 채우면 응답 크기가
+ * 데이터가 아니라 마스터를 따라 커진다. 고정 축이 필요하면 GET /api/categories
+ * 로 받은 목록에서 채운다.
+ */
+export interface SpendingSummary {
+  /** 'YYYY-MM' */
+  month: string;
+  /**
+   * 그 달의 마지막 거래일('YYYY-MM-DD').
+   *
+   * 미완결 월이면 말일보다 이르다. 20일까지만 거래가 있는 달을 완결된 달처럼
+   * 보여주면 합계가 왜 적은지 화면에서 설명할 수 없으므로 함께 표기한다.
+   */
+  monthEnd: string;
+  total: number;
+  count: number;
+  /** 금액 내림차순. */
+  categories: SpendingCategory[];
+}
+
 export interface Persona {
   id: number;
   code: PersonaCode;

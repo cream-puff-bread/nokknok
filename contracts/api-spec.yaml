@@ -92,6 +92,47 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/spending:
+    get:
+      summary: 카테고리별 소비 집계
+      description: |
+        한 달 동안 무엇에 얼마를 썼는지. 다른 화면이 전부 "앞으로 어떻게 될지"
+        만 말하므로 "그동안 뭘 썼는지" 를 되짚는 자리다. 예측이 이 거래에서
+        나오므로 예측의 근거를 보여주는 화면이기도 하다.
+
+        month 를 생략하면 **거래가 있는 마지막 달**을 서버가 고른다. "지난달"
+        같은 상대 표현을 쓰지 않는 이유는, 기준이 실제 날짜에 묶이면 날이
+        갈수록 빈 달을 가리키게 되기 때문이다. 화면 표기는 응답의 month 를 쓴다.
+
+        거래가 없는 카테고리는 행이 생기지 않는다. 이 화면의 질문은 "무엇에
+        썼나" 라서 안 쓴 카테고리는 답이 아니고, spend_category 는 마스터라
+        앞으로 늘어날 수 있는데 매달 전부를 0 으로 채우면 응답 크기가 데이터가
+        아니라 마스터를 따라 커진다. 고정 축이 필요하면 /api/categories 로
+        받은 목록에서 프론트가 채운다.
+      parameters:
+        - in: query
+          name: personaId
+          required: true
+          schema: { type: integer }
+        - in: query
+          name: month
+          required: false
+          description: 'YYYY-MM. 생략하면 거래가 있는 마지막 달'
+          schema: { type: string, example: 2026-08 }
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpendingSummary' }
+        '404':
+          description: 없는 페르소나 (PERSONA_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/balance:
     get:
       summary: 가용잔고 조회
@@ -312,6 +353,33 @@ components:
       properties:
         code:  { type: string, example: ONLINE }
         label: { type: string, example: 온라인쇼핑 }
+
+    SpendingCategory:
+      type: object
+      description: 한 달 동안 그 카테고리에 쓴 금액과 건수.
+      properties:
+        category:      { type: string,  example: ONLINE }
+        categoryLabel: { type: string,  example: 온라인쇼핑 }
+        amount:        { type: integer, example: 307950 }
+        count:         { type: integer, example: 3 }
+
+    SpendingSummary:
+      type: object
+      description: |
+        한 달치 카테고리별 소비. categories 는 금액 내림차순이다.
+
+        monthEnd 를 함께 내려보내는 이유는 마지막 달이 미완결일 수 있어서다.
+        20일까지만 거래가 있는 달을 완결된 달처럼 보여주면 합계가 왜 적은지
+        화면에서 설명할 수 없다.
+      properties:
+        month:    { type: string,  example: 2026-08, description: 'YYYY-MM' }
+        monthEnd: { type: string,  format: date, example: 2026-08-20,
+                    description: 그 달의 마지막 거래일. 미완결 월이면 말일보다 이르다 }
+        total:    { type: integer, example: 1018690 }
+        count:    { type: integer, example: 38 }
+        categories:
+          type: array
+          items: { $ref: '#/components/schemas/SpendingCategory' }
 
     Persona:
       type: object

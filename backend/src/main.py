@@ -20,6 +20,7 @@ from src.api.health import router as health_router
 from src.api.personas import router as personas_router
 from src.api.route import router as route_router
 from src.api.simulate import router as simulate_router
+from src.common.clock import reference_date
 from src.common.config import Settings, get_settings, loaded_env_files
 from src.common.db import dispose_engine
 from src.common.logging import get_logger, setup_logging
@@ -72,10 +73,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 다른 값으로 깨진다. 예외 없이 조용히 다른 값이 되는 계열이라 값을 하나만
     # 흐르게 한다.
     settings: Settings = app.state.settings
+    # 기준일을 함께 찍는다. DEMO_TODAY 를 배포 환경에 넣는 것을 잊으면 화면이
+    # 여는 날마다 달라지는데, 그 사실이 어디에도 드러나지 않으면 알아채기까지
+    # 오래 걸린다.
     logger.info(
-        "API 서버 기동 environment=%s db_pool_max=%d",
+        "API 서버 기동 environment=%s db_pool_max=%d 기준일=%s(%s)",
         settings.environment,
         settings.db_pool_max,
+        reference_date(),
+        "고정" if settings.demo_today else "실제 오늘",
     )
     _log_env_files()
     yield

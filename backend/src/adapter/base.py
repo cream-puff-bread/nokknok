@@ -24,6 +24,8 @@ from datetime import date
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
+from src.common.clock import reference_date
+
 
 class PaymentType(StrEnum):
     """결제 방식. contracts/schema.sql 의 CHECK 제약과 값이 일치해야 한다."""
@@ -106,14 +108,16 @@ class FixedExpense:
         """미사용 의심 구독인지 판단한다.
 
         구독이면서 최근 사용 기록이 90일 이상 없으면 해지를 권할 대상으로 본다.
-        기준일을 인자로 받지 않고 today 를 쓰는 이유는 이 값이 화면 표시용이며
-        계산에는 관여하지 않기 때문이다.
+
+        기준일은 clock.reference_date() 다. 화면 표시용이라 계산에는 관여하지
+        않지만, 시연 데이터가 멈춰 있는데 이 판정만 달력을 따라가면 날이
+        갈수록 의심 구독이 늘어난다.
         """
         if self.expense_type is not ExpenseType.SUBSCRIPTION:
             return False
         if self.last_used_date is None:
             return False
-        return (date.today() - self.last_used_date).days >= 90
+        return (reference_date() - self.last_used_date).days >= 90
 
 
 @dataclass(frozen=True, slots=True)

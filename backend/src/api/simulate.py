@@ -41,6 +41,7 @@ from src.api.schemas import (
     SimulateRequest,
     SimulationResponse,
 )
+from src.common.clock import reference_date
 from src.common.exceptions import InvalidAmountError, InvalidCategoryError
 from src.common.logging import get_logger
 from src.repository import category as category_repo
@@ -124,7 +125,11 @@ def simulate(
         parsed = parser.parse(body.query)
 
     snapshot = build_provider(SourceKind.MOCK, session=session).fetch(code)
-    forecast = forecast_cashflow(snapshot, purchase=parsed.to_purchase())
+    # 기준일을 여기서 넘긴다. forecast 는 DB 도 설정도 모르는 순수 계산으로
+    # 두는 편이 테스트하기 쉽다 — 날짜를 인자로 받는 지금 형태가 그 때문이다.
+    forecast = forecast_cashflow(
+        snapshot, purchase=parsed.to_purchase(), today=reference_date()
+    )
 
     logger.info(
         "시뮬레이션 완료 persona_id=%d 입력=%s 적자전환=%s",
