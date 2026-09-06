@@ -204,6 +204,10 @@ react-router 7 을 쓴다. `App.tsx` 는 `routes` 배열을 훑어 `<Route>` 를
 | `/balance/:personaId` | 대시보드 |
 | `*` | 기본 페르소나 대시보드로 |
 
+이 외에 `/cards/:personaId`, `/simulate/:personaId`, `/route/:personaId` 는 탭을
+없애며 남긴 하위호환 경로로, 같은 페르소나의 대시보드로 넘긴다. 이 세 주소를
+새 화면으로 다시 쓰지 않는다.
+
 레이아웃(`AppLayout`)을 `App.tsx` 에서 한 번에 감싸지 않는 이유는 화면마다
 `personaId` 유무가 달라 탭 노출이 다르기 때문이다. 각 라우트 래퍼가 개별로
 씌운다.

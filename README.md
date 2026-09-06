@@ -133,13 +133,6 @@ psql $DATABASE_URL -f data/clauses.seed.sql
 psql $DATABASE_URL -f data/personas.seed.sql
 ```
 
-시드와 DB가 어긋나지 않았는지 확인한다. 시드를 고쳐 놓고 적재를 잊으면 화면의
-숫자가 조용히 옛 값으로 남는다.
-
-```bash
-python scripts/verify_persona_seed_sync.py
-```
-
 ### 백엔드
 
 ```bash
@@ -147,6 +140,11 @@ cd backend
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+
+# 시드와 DB가 어긋나지 않았는지 확인한다. 시드를 고쳐 놓고 적재를 잊으면
+# 화면의 숫자가 조용히 옛 값으로 남는다.
+python ../scripts/verify_persona_seed_sync.py
+
 uvicorn src.main:app --reload --port 8000
 ```
 
@@ -193,8 +191,8 @@ npm run dev
 프론트엔드는 각자 담당한 백엔드 기능의 화면을 직접 구현한다.
 
 - `@mango606` — 페르소나 선택 및 데이터 업로드
-- `@seohee-P` — 결제 라우팅 결과, 근거 약관 표시
-- `@fanfanduck` — 가용잔고 대시보드, 시뮬레이션 입력, 잔고 추이 차트, 확정 지출 달력, 소비 카테고리 분석
+- `@seohee-P` — 결제 라우팅 결과, 근거 약관 표시, 확정 지출 달력
+- `@fanfanduck` — 가용잔고 대시보드, 시뮬레이션 입력, 잔고 추이 차트, 소비 카테고리 분석
 
 규칙 검수는 별도 화면 대신 `scripts/review_rules.py`로 처리한다.
 
