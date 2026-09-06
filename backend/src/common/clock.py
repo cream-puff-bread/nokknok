@@ -35,5 +35,17 @@ def reference_date() -> date:
 
     벽시계 시각이 필요한 곳(health 의 응답 시각, 수집 시각 기록)에는 쓰지
     않는다. 그건 계산의 기준이 아니라 사건이 실제로 일어난 시각이다.
+
+    **설정은 전역 get_settings() 에서 읽는다. app.state.settings 주입은 이 값에
+    영향을 주지 않는다.** create_app(Settings(DEMO_TODAY=...)) 로 넣어도 기준일은
+    안 바뀐다는 뜻이다. 이 함수가 어댑터의 FixedExpense 처럼 요청 문맥이 없는
+    자리에서도 불리기 때문이고, 그 자리까지 설정을 흘려보내려면 스냅샷 모양을
+    바꿔야 한다.
+
+    기준일은 배포 단위로 하나인 값이라 그 대가를 치를 만큼은 아니라고 봤다.
+    테스트에서 다른 날짜가 필요하면 둘 중 하나를 쓴다.
+
+    - 계산 함수에 today 를 직접 넘긴다(forecast_cashflow 는 필수 인자다)
+    - 이 모듈의 get_settings 를 monkeypatch 한다(tests/test_clock.py 참고)
     """
     return get_settings().demo_today or date.today()

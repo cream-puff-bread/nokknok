@@ -65,6 +65,14 @@ FastAPI가 자동 생성하는 OpenAPI 문서와 `contracts/api-spec.yaml` 이 �
   호출부(`src/api/`)가 `reference_date()` 를 넘긴다 — 예측을 DB 도 설정도 없이
   테스트할 수 있는 이유가 이것이다.
 - 실제 데이터를 붙이는 날 `DEMO_TODAY` 를 지우면 원래대로 돌아간다.
+- `forecast_cashflow()` 의 `today` 는 **필수 인자**다. 예전에는
+  `today or date.today()` 로 흘려보냈는데, 그러면 안 넘긴 호출부가 조용히
+  실제 오늘로 빠진다 — 이 설정이 막으려는 그 실패다. 빠뜨리면 예외로 드러난다.
+- `reference_date()` 는 **전역 `get_settings()` 를 읽는다.**
+  `create_app(Settings(DEMO_TODAY=...))` 로 주입해도 기준일은 안 바뀐다.
+  이 함수가 어댑터의 `FixedExpense` 처럼 요청 문맥이 없는 자리에서도 불리기
+  때문이다. 테스트에서 다른 날짜가 필요하면 계산 함수에 `today` 를 직접
+  넘기거나 `src.common.clock.get_settings` 를 monkeypatch 한다.
 
 ### 커넥션 풀 상한
 

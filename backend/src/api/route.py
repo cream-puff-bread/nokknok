@@ -17,7 +17,7 @@ from __future__ import annotations
 import time
 from collections import defaultdict
 from dataclasses import asdict
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Annotated, TypeVar
 
 from fastapi import APIRouter, Depends
@@ -35,9 +35,9 @@ from src.api.schemas import (
     RouteRequest,
     RouteResponse,
 )
+from src.common.clock import reference_date
 from src.common.exceptions import InvalidAmountError, InvalidCategoryError
 from src.common.llm import LlmClient
-from src.common.clock import reference_date
 from src.common.logging import get_logger
 from src.engine.route import RouteCandidate, evaluate_route
 from src.repository import card as card_repo
