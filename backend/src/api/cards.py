@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Query
@@ -23,6 +22,7 @@ from fastapi import APIRouter, Query
 from src.adapter.factory import SourceKind, build_provider
 from src.api.deps import SessionDep
 from src.api.schemas import CardBenefitResponse, CardExclusionResponse, OwnedCardResponse
+from src.common.clock import reference_date
 from src.common.logging import get_logger
 from src.engine.qualification import performance_period
 from src.engine.route import card_performance
@@ -79,7 +79,7 @@ def list_owned_cards(
     }
     category_labels.setdefault(category_repo.WILDCARD_CATEGORY, WILDCARD_LABEL)
 
-    today = date.today()
+    today = reference_date()
     result: list[OwnedCardResponse] = []
 
     for owned in snapshot.cards:

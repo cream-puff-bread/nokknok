@@ -2,7 +2,8 @@
 
 두 엔드포인트 모두 페르소나 단위 조회라 한 라우터에 둔다.
 계산은 하지 않는다. 가용잔고 산출은 어댑터가 반환한 FinancialSnapshot 의
-책임이고 여기서는 응답 형식으로 옮기기만 한다.
+책임이고, 하루 단위 잔고는 src.forecast.month_outlook 의 책임이다.
+여기서는 응답 형식으로 옮기기만 한다.
 """
 
 from __future__ import annotations
@@ -14,8 +15,15 @@ from sqlalchemy.orm import Session
 
 from src.adapter.factory import SourceKind, build_provider
 from src.api.deps import get_db_session
-from src.api.schemas import BalanceResponse, FixedExpenseResponse, PersonaResponse
+from src.api.schemas import (
+    BalanceResponse,
+    DayBalanceResponse,
+    FixedExpenseResponse,
+    PersonaResponse,
+)
+from src.common.clock import reference_date
 from src.common.logging import get_logger
+from src.forecast import month_outlook
 from src.repository import persona as persona_repo
 
 logger = get_logger(__name__)
@@ -53,11 +61,20 @@ def get_balance(
         len(snapshot.fixed_expenses),
     )
 
+    today = reference_date()
+
     return BalanceResponse(
         account_balance=snapshot.account_balance,
         fixed_total=snapshot.fixed_total,
         available_balance=snapshot.available_balance,
         fixed_expenses=[
             FixedExpenseResponse.model_validate(e) for e in snapshot.fixed_expenses
+        ],
+        reference_date=today,
+        income_day=snapshot.income_day,
+        monthly_income=snapshot.monthly_income,
+        month_outlook=[
+            DayBalanceResponse.model_validate(p)
+            for p in month_outlook(snapshot, today=today)
         ],
     )

@@ -185,12 +185,21 @@ def _find_dead_point(scenarios: list[Scenario]) -> DeadPoint | None:
 def forecast_cashflow(
     snapshot: FinancialSnapshot,
     *,
-    today: date | None = None,
+    today: date,
     months: int = DEFAULT_HORIZON_MONTHS,
     purchase: PlannedPurchase | None = None,
 ) -> CashflowForecast:
-    """월말 잔고를 시나리오 세 가지로 그린다."""
-    today = today or date.today()
+    """월말 잔고를 시나리오 세 가지로 그린다.
+
+    today 는 필수다. 예전에는 `today or date.today()` 로 흘려보냈는데, 그러면
+    안 넘긴 호출부가 조용히 실제 오늘로 빠진다 — 시연 데이터가 멈춰 있는데
+    계산만 달력을 따라가는, DEMO_TODAY 가 막으려는 그 실패다. 빠뜨리면 예외로
+    드러나게 둔다.
+
+    설정을 여기서 읽지 않는 이유는 이 모듈을 순수하게 두기 위해서다. 예측은
+    DB 도 설정도 없이 테스트할 수 있어야 하고, 기준일은 호출부가
+    src.common.clock.reference_date() 로 받아 넘긴다.
+    """
     if months < 1:
         raise ValueError(f"예측 개월 수는 1 이상이어야 합니다: {months}")
 

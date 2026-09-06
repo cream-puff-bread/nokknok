@@ -4,6 +4,7 @@
 새 설정을 추가할 때는 .env.example 에도 함께 반영해야 한다.
 """
 
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -89,6 +90,13 @@ class Settings(BaseSettings):
     )
 
     # ─── App ───
+    # 계산의 기준일. 비우면 실제 오늘을 쓴다(src/common/clock.py).
+    #
+    # 시연 데이터가 특정 시점의 스냅샷인데 계산만 달력을 따라가면 둘이
+    # 어긋난다 — 같은 화면이 여는 날에 따라 "안전" 도 되고 "적자" 도 된다.
+    # 실제 데이터를 붙이는 날 이 값만 지우면 원래대로 돌아간다.
+    demo_today: date | None = Field(default=None, alias="DEMO_TODAY")
+
     port: int = Field(default=8000, alias="PORT")
     environment: str = Field(default="development", alias="ENVIRONMENT")
     cors_origin: str = Field(default="http://localhost:5173", alias="CORS_ORIGIN")

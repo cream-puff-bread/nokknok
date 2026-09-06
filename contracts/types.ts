@@ -56,6 +56,46 @@ export interface SpendCategory {
   label: string;
 }
 
+/** 한 달 동안 그 카테고리에 쓴 금액과 건수. */
+export interface SpendingCategory {
+  category: string;
+  categoryLabel: string;
+  amount: number;
+  count: number;
+}
+
+/**
+ * 한 달치 카테고리별 소비.
+ *
+ * 다른 화면이 전부 "앞으로 어떻게 될지" 만 말하므로 "그동안 뭘 썼는지" 를
+ * 되짚는 자리다. 예측이 이 거래에서 나오므로 예측의 근거이기도 하다.
+ *
+ * 거래가 없는 카테고리는 배열에 없다. 안 쓴 카테고리는 "무엇에 썼나" 의 답이
+ * 아니고, spend_category 는 마스터라 매달 전부를 0 으로 채우면 응답 크기가
+ * 데이터가 아니라 마스터를 따라 커진다. 고정 축이 필요하면 GET /api/categories
+ * 로 받은 목록에서 채운다.
+ */
+export interface SpendingSummary {
+  /** 'YYYY-MM' */
+  month: string;
+  /**
+   * 그 달의 마지막 거래일('YYYY-MM-DD'). 거래가 없는 달이면 null.
+   *
+   * 미완결 월이면 말일보다 이르다. 20일까지만 거래가 있는 달을 완결된 달처럼
+   * 보여주면 합계가 왜 적은지 화면에서 설명할 수 없으므로 함께 표기한다.
+   *
+   * null 인 이유는 이 필드의 뜻이 "마지막 거래일" 이기 때문이다 — 거래가
+   * 없으면 해당하는 날짜가 존재하지 않는다. 다른 값으로 메우면 전부 사실과
+   * 어긋난다. 화면에서는 이 값이 null 이면 기간 표기를 생략하고 빈 상태를
+   * 그린다.
+   */
+  monthEnd: string | null;
+  total: number;
+  count: number;
+  /** 금액 내림차순. 거래가 없는 달이면 빈 배열이다 — 오류가 아니라 사실이다. */
+  categories: SpendingCategory[];
+}
+
 export interface Persona {
   id: number;
   code: PersonaCode;
@@ -73,11 +113,35 @@ export interface FixedExpense {
   unusedSuspect: boolean;
 }
 
+export interface DayBalance {
+  /** 이 달의 날짜 */
+  day: number;
+  /** 그날 밤 기준 예상 잔고 */
+  balance: number;
+  /** 그날 들어오는 돈. 급여일에만 0이 아니다 */
+  income: number;
+  /** 그날 빠지는 확정 지출. 변동 지출은 빼고 센다 */
+  fixedOutflow: number;
+}
+
 export interface BalanceResponse {
   accountBalance: number;
   fixedTotal: number;
   availableBalance: number;
   fixedExpenses: FixedExpense[];
+  /**
+   * 계산 기준일 'YYYY-MM-DD'. DEMO_TODAY 로 고정돼 있으면 그 날짜다.
+   * 화면이 브라우저 시계로 "오늘" 을 정하면 서버와 어긋나므로 이 값을 쓴다.
+   */
+  referenceDate: string;
+  incomeDay: number;
+  monthlyIncome: number;
+  /**
+   * 기준일부터 이번 달 말까지 하루 단위 예상 잔고(보통 시나리오).
+   * 첫 항목은 기준일이며 잔고는 통장 잔액 그대로다.
+   * 마지막 항목은 SimulationResponse 의 첫 예측점과 같은 값이다.
+   */
+  monthOutlook: DayBalance[];
 }
 
 export interface ScenarioPoint {
@@ -223,6 +287,12 @@ export interface RouteCandidate {
   installmentMonths: number;
   expectedDiscount: number;
   perfAchieved: boolean;
+  /**
+   * 위 payDate 가 속한 실적 기간의 인정 금액이다. OwnedCard.perfCurrent(오늘이
+   * 속한 기간)와는 **다를 수 있다** — 엔진이 마감을 넘겨 결제하라고 고른
+   * 후보는 다음 기간을 보기 때문이다. 두 화면에 나란히 놓을 때는 어느
+   * 기간인지 함께 적어야 한다.
+   */
   perfCurrent: number;
   perfRequired: number;
   /**

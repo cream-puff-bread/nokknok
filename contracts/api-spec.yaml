@@ -92,6 +92,47 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/spending:
+    get:
+      summary: 카테고리별 소비 집계
+      description: |
+        한 달 동안 무엇에 얼마를 썼는지. 다른 화면이 전부 "앞으로 어떻게 될지"
+        만 말하므로 "그동안 뭘 썼는지" 를 되짚는 자리다. 예측이 이 거래에서
+        나오므로 예측의 근거를 보여주는 화면이기도 하다.
+
+        month 를 생략하면 **거래가 있는 마지막 달**을 서버가 고른다. "지난달"
+        같은 상대 표현을 쓰지 않는 이유는, 기준이 실제 날짜에 묶이면 날이
+        갈수록 빈 달을 가리키게 되기 때문이다. 화면 표기는 응답의 month 를 쓴다.
+
+        거래가 없는 카테고리는 행이 생기지 않는다. 이 화면의 질문은 "무엇에
+        썼나" 라서 안 쓴 카테고리는 답이 아니고, spend_category 는 마스터라
+        앞으로 늘어날 수 있는데 매달 전부를 0 으로 채우면 응답 크기가 데이터가
+        아니라 마스터를 따라 커진다. 고정 축이 필요하면 /api/categories 로
+        받은 목록에서 프론트가 채운다.
+      parameters:
+        - in: query
+          name: personaId
+          required: true
+          schema: { type: integer }
+        - in: query
+          name: month
+          required: false
+          description: 'YYYY-MM. 생략하면 거래가 있는 마지막 달'
+          schema: { type: string, example: 2026-08 }
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpendingSummary' }
+        '404':
+          description: 없는 페르소나 (PERSONA_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/balance:
     get:
       summary: 가용잔고 조회
@@ -313,6 +354,47 @@ components:
         code:  { type: string, example: ONLINE }
         label: { type: string, example: 온라인쇼핑 }
 
+    SpendingCategory:
+      type: object
+      description: 한 달 동안 그 카테고리에 쓴 금액과 건수.
+      properties:
+        category:      { type: string,  example: ONLINE }
+        categoryLabel: { type: string,  example: 온라인쇼핑 }
+        amount:        { type: integer, example: 307950 }
+        count:         { type: integer, example: 3 }
+
+    SpendingSummary:
+      type: object
+      description: |
+        한 달치 카테고리별 소비. categories 는 금액 내림차순이다.
+
+        monthEnd 를 함께 내려보내는 이유는 마지막 달이 미완결일 수 있어서다.
+        20일까지만 거래가 있는 달을 완결된 달처럼 보여주면 합계가 왜 적은지
+        화면에서 설명할 수 없다.
+
+        거래가 하나도 없는 달을 명시적으로 요청하면 total 0, count 0,
+        categories [], monthEnd null 로 답한다. 빈 달은 오류가 아니라 사실이다.
+      properties:
+        month:    { type: string,  example: 2026-08, description: 'YYYY-MM' }
+        monthEnd:
+          type: string
+          format: date
+          nullable: true
+          example: 2026-08-20
+          description: |
+            그 달의 마지막 거래일. 미완결 월이면 말일보다 이르다.
+
+            거래가 없는 달이면 null 이다. 이 필드의 뜻이 "마지막 거래일" 이라
+            거래가 없으면 해당하는 날짜가 존재하지 않는다. 다른 값으로 메우면
+            전부 사실과 어긋난다 — 전체 이력의 마지막 거래일을 넣으면 month 와
+            다른 달을 가리키게 되고, 월초·말일은 "마지막 거래일" 이라는 정의
+            자체와 맞지 않는다.
+        total:    { type: integer, example: 1018690 }
+        count:    { type: integer, example: 38 }
+        categories:
+          type: array
+          items: { $ref: '#/components/schemas/SpendingCategory' }
+
     Persona:
       type: object
       properties:
@@ -332,6 +414,14 @@ components:
         expenseType:   { type: string, enum: [SUBSCRIPTION, INSTALLMENT, LOAN, INSURANCE] }
         unusedSuspect: { type: boolean, description: 미사용 의심 구독 }
 
+    DayBalance:
+      type: object
+      properties:
+        day:          { type: integer, description: 이 달의 날짜, example: 25 }
+        balance:      { type: integer, description: 그날 밤 기준 예상 잔고 }
+        income:       { type: integer, description: 그날 들어오는 돈. 급여일에만 0이 아니다 }
+        fixedOutflow: { type: integer, description: 그날 빠지는 확정 지출. 변동 지출은 빼고 센다 }
+
     BalanceResponse:
       type: object
       properties:
@@ -341,6 +431,22 @@ components:
         fixedExpenses:
           type: array
           items: { $ref: '#/components/schemas/FixedExpense' }
+        referenceDate:
+          type: string
+          format: date
+          example: 2026-08-20
+          description: >
+            계산 기준일. DEMO_TODAY 로 고정돼 있으면 그 날짜다.
+            화면이 브라우저 시계로 "오늘" 을 정하면 서버와 어긋난다.
+        incomeDay:     { type: integer, description: 매달 급여일, example: 25 }
+        monthlyIncome: { type: integer, description: 월 수입 }
+        monthOutlook:
+          type: array
+          description: >
+            기준일부터 이번 달 말까지 하루 단위 예상 잔고(보통 시나리오).
+            첫 항목은 기준일이며 잔고는 통장 잔액 그대로다.
+            마지막 항목은 SimulationResponse 의 첫 예측점과 같은 값이다.
+          items: { $ref: '#/components/schemas/DayBalance' }
 
     ParsedQuery:
       type: object
@@ -417,7 +523,12 @@ components:
         installmentMonths: { type: integer }
         expectedDiscount:  { type: integer }
         perfAchieved:      { type: boolean }
-        perfCurrent:       { type: integer }
+        perfCurrent:
+          type: integer
+          description: >
+            위 payDate 가 속한 실적 기간의 인정 금액.
+            OwnedCard.perfCurrent(오늘이 속한 기간)와 다를 수 있다 —
+            엔진이 마감을 넘겨 결제하라고 고른 후보는 다음 기간을 본다.
         perfRequired:      { type: integer }
         ruleId:
           type: integer

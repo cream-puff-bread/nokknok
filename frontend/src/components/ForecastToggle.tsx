@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { runSimulationForPurchase } from '../api/simulate';
-import { ForecastChart } from './ForecastChart';
+import { ForecastChart, monthLabel } from './ForecastChart';
 import { Skeleton } from './Skeleton';
 import {
   formatWon,
@@ -41,7 +41,7 @@ interface ForecastToggleProps {
   purchase: ParsedQuery;
   /** 물어본 방식으로 이미 계산해 둔 결과. 다시 부르지 않는다. */
   asked: SimulationResponse;
-  /** 오늘의 가용잔고. 차트 첫 점('지금')으로 쓴다. */
+  /** 오늘의 가용잔고. 차트 아래 한 줄로 적는다. */
   availableBalance?: number;
 }
 
@@ -152,7 +152,6 @@ export function ForecastToggle({
                 ? { label: other.label, scenarios: otherForecast.scenarios }
                 : null
             }
-            startBalance={availableBalance}
           />
 
           <FeedbackBanner
@@ -161,6 +160,7 @@ export function ForecastToggle({
             shown={shown}
             other={other}
             otherForecast={otherForecast}
+            availableBalance={availableBalance}
           />
         </>
       )}
@@ -180,6 +180,11 @@ export function ForecastToggle({
  * 그래프만으로는 "그래서 어떻게 하라는 건지" 가 안 나온다. 위험하면 무엇을
  * 바꾸면 되는지까지 말해야 다음 행동을 정할 수 있다 — 특히 옆에서 설명해 줄
  * 사람이 없는 화면에서는.
+ *
+ * 가용잔고는 여기 첫 문장으로만 적고 예측과 화살표로 잇지 않는다. 둘은 서로
+ * 다른 것을 재는 값이라(가용잔고는 이번 달 확정지출 전액을 뺀 오늘, 예측은
+ * 아직 안 나간 것만 뺀 월말), "지금 X → N개월 뒤 Y" 로 쓰면 차트에서 뺀 그
+ * 잘못된 연결을 글자로 다시 만드는 셈이 된다.
  */
 function FeedbackBanner({
   purchase,
@@ -187,13 +192,20 @@ function FeedbackBanner({
   shown,
   other,
   otherForecast,
+  availableBalance,
 }: {
   purchase: ParsedQuery;
   active: Variant;
   shown: SimulationResponse;
   other: Variant | null;
   otherForecast: SimulationResponse | null;
+  availableBalance?: number;
 }) {
+  const nowLine =
+    availableBalance === undefined
+      ? ''
+      : `지금 바로 쓸 수 있는 돈은 ${formatWon(availableBalance)}입니다. `;
+
   if (shown.deadPoint === null) {
     const monthly =
       active.installmentMonths > 0
@@ -205,6 +217,7 @@ function FeedbackBanner({
           🛡️ {active.label}이면 6개월 내내 안전
         </p>
         <p className="mt-1 text-xs text-emerald-900/80">
+          {nowLine}
           {monthly === null
             ? '6개월 동안 잔고가 0원 아래로 내려가지 않습니다.'
             : `월 ${formatWon(monthly)}씩 나눠 내면 잔고가 0원 위를 유지합니다. 무이자라 이자 부담은 없습니다.`}
@@ -213,7 +226,12 @@ function FeedbackBanner({
     );
   }
 
-  const monthIndex = indexOf(shown, shown.deadPoint.month);
+  // 차트 축과 같은 표기를 쓴다. 축이 '11월' 인데 글이 '4개월 뒤' 라고 하면
+  // 서로 같은 달을 가리키는지 눈으로 이을 수 없다. 게다가 첫 구간이 한 달보다
+  // 짧아(projection.py 의 _remaining_month_ratio) 몇 번째인지로 세면 실제
+  // 기간과 어긋난다 — 그래서 지운 표기다.
+  const base = shown.scenarios[0]?.points[0]?.month ?? '';
+  const deadLabel = monthLabel(shown.deadPoint.month, base);
   const saferIsSafe = otherForecast !== null && otherForecast.deadPoint === null;
   // 보통 시나리오가 어디까지 내려가는지 함께 말한다.
   //
@@ -233,18 +251,18 @@ function FeedbackBanner({
   return (
     <div className={`mt-3 rounded-2xl border p-4 ${tone.box}`}>
       <p className={`text-sm font-semibold ${tone.head}`}>
-        {severe ? '🚨' : '⚠️'} {active.label} 결제 시{' '}
-        {monthIndex === null ? '' : `${monthIndex}개월 뒤 `}
-        잔고 {severe ? '부족' : '주의'}
+        {severe ? '🚨' : '⚠️'} {active.label} 결제 시 {deadLabel} 말 잔고{' '}
+        {severe ? '부족' : '주의'}
       </p>
       <p className={`mt-1 text-xs ${tone.body}`}>
+        {nowLine}
         {/* 남는 쪽은 "줄어든다" 고 쓰지 않는다. 6개월 할부처럼 가장 낮은
             달의 잔고가 오늘보다 오히려 많은 경우가 있어서, 방향을 단정하면
             그 화면에서 거짓말이 된다. 가장 낮은 지점만 사실대로 짚는다. */}
         {trough !== null && trough.balance < 0
-          ? `보통 시나리오에서도 ${trough.index}개월 뒤 ${formatWon(-trough.balance)} 모자랍니다. `
+          ? `보통 시나리오에서도 ${monthLabel(trough.month, base)} 말 ${formatWon(-trough.balance)} 모자랍니다. `
           : trough !== null
-            ? `보통 시나리오는 ${trough.index}개월 뒤 ${formatWon(trough.balance)}이 가장 낮습니다. `
+            ? `보통 시나리오는 ${monthLabel(trough.month, base)} 말 ${formatWon(trough.balance)}이 가장 낮습니다. `
             : ''}
         가장 빠듯한 경우에는 {formatWon(shown.deadPoint.shortage)} 부족해집니다.
         {/* 일시불은 나눠 내는 방법이 아니다. 할부를 보고 있는데 더 나은
@@ -267,23 +285,16 @@ function keyOf(paymentType: PaymentType, months: number): string {
   return `${paymentType}${months}`;
 }
 
-/** 적자 달이 지금부터 몇 번째인지. 못 찾으면 null. */
-function indexOf(simulation: SimulationResponse, month: string): number | null {
-  const months = simulation.scenarios[0]?.points.map((p) => p.month) ?? [];
-  const index = months.indexOf(month);
-  return index < 0 ? null : index + 1;
-}
-
 /** 그 시나리오에서 잔고가 가장 낮아지는 지점. 없으면 null. */
 function lowestPoint(
   simulation: SimulationResponse,
   level: string,
-): { index: number; balance: number } | null {
+): { month: string; balance: number } | null {
   const points = simulation.scenarios.find((s) => s.level === level)?.points ?? [];
   if (points.length === 0) return null;
   let best = 0;
   for (let i = 1; i < points.length; i += 1) {
     if (points[i].balance < points[best].balance) best = i;
   }
-  return { index: best + 1, balance: points[best].balance };
+  return { month: points[best].month, balance: points[best].balance };
 }

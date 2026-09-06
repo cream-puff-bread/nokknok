@@ -30,6 +30,21 @@ class SpendCategoryResponse(CamelModel):
     label: str
 
 
+class SpendingCategoryResponse(CamelModel):
+    category: str
+    category_label: str
+    amount: int
+    count: int
+
+
+class SpendingSummaryResponse(CamelModel):
+    month: str
+    month_end: date | None
+    total: int
+    count: int
+    categories: list[SpendingCategoryResponse]
+
+
 class CardBenefitResponse(CamelModel):
     category: str
     category_label: str
@@ -79,11 +94,26 @@ class FixedExpenseResponse(CamelModel):
     unused_suspect: bool
 
 
+class DayBalanceResponse(CamelModel):
+    day: int
+    balance: int
+    income: int
+    fixed_outflow: int
+
+
 class BalanceResponse(CamelModel):
     account_balance: int
     fixed_total: int
     available_balance: int
     fixed_expenses: list[FixedExpenseResponse]
+    # 계산 기준일. 화면이 "오늘" 을 브라우저 시계로 정하면 DEMO_TODAY 로
+    # 고정한 서버와 어긋나 달력의 오늘이 엉뚱한 날에 찍힌다.
+    reference_date: date
+    income_day: int
+    monthly_income: int
+    # 기준일부터 이번 달 말까지 하루 단위 예상 잔고(보통 시나리오).
+    # 마지막 항목은 /api/simulate 의 첫 예측점과 같은 값이다.
+    month_outlook: list[DayBalanceResponse]
 
 
 class RouteRequest(CamelModel):
