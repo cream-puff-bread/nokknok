@@ -4,6 +4,7 @@
 |---|---|---|
 | `generate_persona.py` | @mango606 | 페르소나별 6개월 거래 내역 생성 |
 | `ingest_clauses.py` | @mango606 | 약관 PDF 파싱·규칙 추출·적재 |
+| `verify_persona_seed_sync.py` | @mango606 | seed 파일과 DB의 persona/fixed_expense 정합성 확인 |
 
 ## generate_persona.py
 
@@ -72,6 +73,20 @@ ORDER BY r.perf_min, r.category;
 -- 확인 후 승인
 UPDATE card_benefit_rule SET verified = true WHERE id = :id;
 ```
+
+## verify_persona_seed_sync.py
+
+seed 파일을 다시 실행한 것과 지금 DB가 같은 상태여야 한다는 게 seed를
+진실의 원천으로 삼는 전제다. 브랜치가 오래돼 이미 병합된 seed 수정을
+못 보고 있으면 이 전제가 깨진 것처럼 보이는데, 사람이 값을 눈으로
+대조해서는 이걸 놓치기 쉽다. DB 연결 정보는 다른 스크립트와 동일하게
+`.env` 의 `DATABASE_URL` 을 쓰며, 읽기 전용이다.
+
+```bash
+python scripts/verify_persona_seed_sync.py
+```
+
+불일치가 있으면 exit code 1로 종료한다.
 
 ## 공통 주의
 
