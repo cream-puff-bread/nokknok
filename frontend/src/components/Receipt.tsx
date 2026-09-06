@@ -89,8 +89,20 @@ export function Receipt({
                     </span>
                   )}
                 </p>
+                {/* 결제일을 반드시 함께 적는다. 엔진은 "언제 결제할지" 도
+                    고르므로(engine/route.py 의 결제일 조합) 카드 이름만으로는
+                    추천이 절반만 전달된다 — 마감을 넘겨 다음 기간에 붙이라는
+                    답일 때 그 조건이 사라진다. 대안 카드 줄과 같은 축이다. */}
                 <p className="text-xs text-gray-500">
-                  실적 {formatWon(best.perfCurrent)} / {formatWon(best.perfRequired)}
+                  {formatDate(best.payDate)} · {PAYMENT_TYPE_LABEL[best.paymentType]}
+                  {best.installmentMonths > 0 && ` ${best.installmentMonths}개월`}
+                </p>
+                {/* "이 결제일 기준" 을 빼면 카드 목록의 실적과 숫자가 달라
+                    보인다. 둘은 다른 기간을 센 값이다 — 카드 목록은 오늘이
+                    속한 기간, 여기는 위 결제일이 속한 기간이다. */}
+                <p className="text-xs text-gray-500">
+                  이 결제일 기준 실적 {formatWon(best.perfCurrent)} /{' '}
+                  {formatWon(best.perfRequired)}
                   <span
                     className={`ml-1.5 ${
                       best.perfAchieved ? 'text-emerald-600' : 'text-amber-600'

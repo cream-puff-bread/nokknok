@@ -287,6 +287,12 @@ export interface RouteCandidate {
   installmentMonths: number;
   expectedDiscount: number;
   perfAchieved: boolean;
+  /**
+   * 위 payDate 가 속한 실적 기간의 인정 금액이다. OwnedCard.perfCurrent(오늘이
+   * 속한 기간)와는 **다를 수 있다** — 엔진이 마감을 넘겨 결제하라고 고른
+   * 후보는 다음 기간을 보기 때문이다. 두 화면에 나란히 놓을 때는 어느
+   * 기간인지 함께 적어야 한다.
+   */
   perfCurrent: number;
   perfRequired: number;
   /**
