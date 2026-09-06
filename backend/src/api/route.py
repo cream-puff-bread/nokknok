@@ -37,6 +37,7 @@ from src.api.schemas import (
 )
 from src.common.exceptions import InvalidAmountError, InvalidCategoryError
 from src.common.llm import LlmClient
+from src.common.clock import reference_date
 from src.common.logging import get_logger
 from src.engine.route import RouteCandidate, evaluate_route
 from src.repository import card as card_repo
@@ -100,7 +101,7 @@ def route_payment(session: SessionDep, llm: LlmDep, body: RouteRequest) -> Route
     rules_by_card = _group_by_card_id(card_repo.list_benefit_rules(session, all_card_ids))
     exclusions_by_card = _group_by_card_id(card_repo.list_exclusions(session, all_card_ids))
 
-    as_of = date.today()
+    as_of = reference_date()
     due_date = body.due_date or as_of + timedelta(days=DEFAULT_DUE_DATE_WINDOW_DAYS)
 
     started = time.perf_counter()
